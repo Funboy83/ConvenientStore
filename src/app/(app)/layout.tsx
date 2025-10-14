@@ -1,5 +1,5 @@
 import { UserProvider } from '@/contexts/user-context';
-import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarFooter, SidebarInset } from '@/components/ui/sidebar';
+import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarInset, SidebarTrigger } from '@/components/ui/sidebar';
 import { Logo } from '@/components/icons';
 import { Nav } from '@/components/nav';
 import { UserNav } from '@/components/user-nav';
@@ -27,7 +27,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
             </SidebarContent>
           </Sidebar>
           <SidebarInset>
-            <header className="flex items-center justify-end h-16 px-4 border-b shrink-0 md:px-6">
+            <header className="flex items-center justify-between h-16 px-4 border-b shrink-0 md:px-6">
+                <div className="flex items-center gap-2">
+                    <SidebarTrigger className="md:hidden" />
+                    <h1 className="font-semibold text-lg md:hidden">SecureStock</h1>
+                </div>
                <div className="flex items-center gap-4">
                  <Button variant="outline" size="icon" aria-label="Scan Barcode">
                   <ScanLine className="h-4 w-4" />
