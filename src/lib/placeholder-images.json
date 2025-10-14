@@ -1,3 +1,52 @@
 {
-  "placeholderImages": []
+  "placeholderImages": [
+    {
+      "id": "item-1",
+      "description": "A bag of premium Arabica coffee beans.",
+      "imageUrl": "https://picsum.photos/seed/101/400/400",
+      "imageHint": "coffee beans"
+    },
+    {
+      "id": "item-2",
+      "description": "A carton of fresh whole milk.",
+      "imageUrl": "https://picsum.photos/seed/102/400/400",
+      "imageHint": "milk carton"
+    },
+    {
+      "id": "item-3",
+      "description": "A box of assorted pastries.",
+      "imageUrl": "https://picsum.photos/seed/103/400/400",
+      "imageHint": "pastries box"
+    },
+    {
+      "id": "item-4",
+      "description": "A bottle of vanilla syrup.",
+      "imageUrl": "https://picsum.photos/seed/104/400/400",
+      "imageHint": "syrup bottle"
+    },
+    {
+      "id": "item-5",
+      "description": "A stack of branded paper cups.",
+      "imageUrl": "https://picsum.photos/seed/105/400/400",
+      "imageHint": "paper cups"
+    },
+    {
+      "id": "item-6",
+      "description": "A freshly baked croissant.",
+      "imageUrl": "https://picsum.photos/seed/106/400/400",
+      "imageHint": "croissant pastry"
+    },
+    {
+      "id": "item-7",
+      "description": "A chocolate chip cookie.",
+      "imageUrl": "https://picsum.photos/seed/107/400/400",
+      "imageHint": "cookie chocolate"
+    },
+    {
+      "id": "item-8",
+      "description": "A blueberry muffin.",
+      "imageUrl": "https://picsum.photos/seed/108/400/400",
+      "imageHint": "muffin blueberry"
+    }
+  ]
 }
