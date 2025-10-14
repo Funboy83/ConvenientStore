@@ -29,7 +29,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <SidebarInset>
             <header className="flex items-center justify-between h-16 px-4 border-b shrink-0 md:px-6">
                 <div className="flex items-center gap-2">
-                    <SidebarTrigger className="md:hidden" />
+                    <SidebarTrigger />
                     <h1 className="font-semibold text-lg md:hidden">SecureStock</h1>
                 </div>
                <div className="flex items-center gap-4">
