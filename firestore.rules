@@ -1,205 +1,159 @@
 /**
- * @fileoverview Firestore Security Rules for SecureStock POS and Inventory System.
+ * @fileoverview Firestore Security Rules for SecureStock application.
  *
  * Core Philosophy:
- * This ruleset enforces a strict user-ownership model for user-specific data while allowing public read access to certain collections like 'products'.
- * User roles are not explicitly used in rules; instead, authorization focuses on path-based ownership and data-level consistency.
+ * This ruleset prioritizes security by enforcing path-based ownership and explicit access controls.
+ * Data validation is relaxed to allow for rapid prototyping.
  *
  * Data Structure:
- * - /users/{userId}: Stores individual user profiles. Only the authenticated user can read or write their own profile.
- * - /products/{productId}: Stores product information. Publicly readable, but only owners can create, update, or delete. An 'ownerId' field is assumed on the Product documents.
- * - /inventoryBatches/{inventoryBatchId}: Stores inventory batches.
- * - /users/{userId}/saleTransactions/{saleTransactionId}: Stores sale transactions for each user. Only the user can access their own transactions.
- * - /saleItems/{saleItemId}: Stores sale items.
- * - /auditLogs/{auditLogId}: Stores audit logs.
- * - /units/{unitId}: Stores units of measure.
- * - /productAttributes/{attributeId}: Stores product attributes.
+ * - /users/{userId}: Stores user profiles.  User ID is used for ownership.
+ * - /products/{productId}: Stores product information.
+ * - /inventoryBatches/{inventoryBatchId}: Stores inventory batch data.
+ * - /users/{userId}/saleTransactions/{saleTransactionId}: Stores sale transactions for a given user.
+ * - /saleItems/{saleItemId}: Stores individual sale items.
+ * - /auditLogs/{auditLogId}: Stores audit log entries.
+ * - /units/{unitId}: Stores unit of measure information.
+ * - /productAttributes/{attributeId}: Stores product attribute definitions.
  *
  * Key Security Decisions:
- * - User listing is disallowed.
- * - Public read access is granted to the /products collection. Owner-only writes are intended, but the rule requires an 'ownerId' field to be present on Product documents.
- * - The rules explicitly deny any write operation that is not authorized.
- *
- * Denormalization for Authorization:
- * - The `SaleTransaction` documents are stored as subcollections of `/users/{userId}`, enabling path-based authorization and avoiding the need to query a separate collection to check user ownership.
+ * - Strict ownership for user profiles and sale transactions via the /users/{userId} path.
+ * - No user listing is allowed to prevent information leakage.
+ * - Read-only access to products, inventory batches, sale items, audit logs, units and product attributes.
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * @description Secure user profiles.
+     * @description Enforces ownership for user profiles. Only the authenticated user can read/write their own profile.
      * @path /users/{userId}
-     * @allow (create) Authenticated user with matching ID can create their profile.
-     * @allow (get, list, update, delete) Authenticated user with matching ID can access their profile.
-     * @deny (create) If the user ID in the path does not match the authenticated user's ID.
-     * @deny (get, list, update, delete) If the user ID in the path does not match the authenticated user's ID.
-     * @principle Enforces document ownership for all operations.
+     * @allow (create) User with ID 'user123' creates their own profile.
+     * @deny (create) User with ID 'user123' tries to create a profile for 'user456'.
+     * @principle Enforces document ownership for writes.
      */
     match /users/{userId} {
       function isOwner(userId) {
-        return request.auth != null && request.auth.uid == userId;
+        return request.auth.uid == userId;
       }
-
-      allow get: if isOwner(userId);
+      function isSignedIn() {
+        return request.auth != null;
+      }
+      allow get: if isSignedIn() && isOwner(userId);
       allow list: if false;
-      allow create: if isOwner(userId) && request.resource.data.id == userId;
-      allow update: if isOwner(userId) && resource.data.id == userId;
-      allow delete: if isOwner(userId) && resource.data.id == userId;
+      allow create: if isSignedIn() && isOwner(userId);
+      allow update: if isSignedIn() && isOwner(userId);
+      allow delete: if isSignedIn() && isOwner(userId);
     }
 
     /**
-     * @description Secure product information.
+     * @description Allows public read access to product information, with no write access.
      * @path /products/{productId}
-     * @allow (get, list) Anyone can read product information.
-     * @allow (create) Authenticated user can create a product with a matching ownerId.
-     * @allow (update, delete) Authenticated user can update or delete a product if they are the owner.
-     * @deny (create) If the ownerId in the data does not match the authenticated user's ID.
-     * @deny (update, delete) If the user is not the owner of the product.
-     * @principle Allows public read access but enforces document ownership for writes.
+     * @allow (get) Any user can retrieve product information.
+     * @deny (create) Any user cannot create a new product.
+     * @principle Public read, no write access.
      */
     match /products/{productId} {
-        function isSignedIn() {
-          return request.auth != null;
-        }
-
-        allow get, list: if true;
-
-        allow create: if isSignedIn() && request.resource.data.keys().hasAll(['name', 'description', 'barcode']); // Allow only if signed in and has all required fields
-
-        allow update: if isSignedIn();
-
-        allow delete: if isSignedIn();
+      allow get: if true;
+      allow list: if true;
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
     }
 
     /**
-     * @description Secure inventory batch information.
+     * @description Allows public read access to inventory batch information, with no write access.
      * @path /inventoryBatches/{inventoryBatchId}
-     * @allow (get, list) Anyone can read inventory batch information.
-     * @allow (create) Authenticated user can create an inventory batch.
-     * @allow (update, delete) Authenticated user can update or delete an inventory batch.
-     * @principle Allows public read access, but enforces owner-only writes.
+     * @allow (get) Any user can retrieve inventory batch information.
+     * @deny (create) Any user cannot create a new inventory batch.
+     * @principle Public read, no write access.
      */
     match /inventoryBatches/{inventoryBatchId} {
-        function isSignedIn() {
-          return request.auth != null;
-        }
-
-        allow get, list: if true;
-
-        allow create: if isSignedIn() && request.resource.data.keys().hasAll(['productId', 'receivingDate', 'quantity']);
-
-        allow update: if isSignedIn();
-
-        allow delete: if isSignedIn();
+      allow get: if true;
+      allow list: if true;
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
     }
 
     /**
-     * @description Secure sale transactions for each user.
+     * @description Enforces ownership for sale transactions. Only the authenticated user can read/write their own transactions.
      * @path /users/{userId}/saleTransactions/{saleTransactionId}
-     * @allow (create) Authenticated user with matching ID can create a sale transaction.
-     * @allow (get, list, update, delete) Authenticated user with matching ID can access their sale transactions.
-     * @deny (create) If the user ID in the path does not match the authenticated user's ID.
-     * @deny (get, list, update, delete) If the user ID in the path does not match the authenticated user's ID.
-     * @principle Enforces document ownership for all operations.
+     * @allow (create) User with ID 'user123' creates a sale transaction under their ID.
+     * @deny (create) User with ID 'user123' tries to create a sale transaction under 'user456'.
+     * @principle Enforces document ownership for writes.
      */
     match /users/{userId}/saleTransactions/{saleTransactionId} {
       function isOwner(userId) {
-        return request.auth != null && request.auth.uid == userId;
+        return request.auth.uid == userId;
       }
-      allow get: if isOwner(userId);
-      allow list: if isOwner(userId);
-      allow create: if isOwner(userId) && request.resource.data.userId == userId;
-      allow update: if isOwner(userId) && resource.data.userId == userId;
-      allow delete: if isOwner(userId) && resource.data.userId == userId;
+      function isSignedIn() {
+        return request.auth != null;
+      }
+      allow get: if isSignedIn() && isOwner(userId);
+      allow list: if false; // Listing not allowed for security
+      allow create: if isSignedIn() && isOwner(userId);
+      allow update: if isSignedIn() && isOwner(userId);
+      allow delete: if isSignedIn() && isOwner(userId);
     }
 
     /**
-     * @description Secure sale item information.
+     * @description Allows public read access to sale item information, with no write access.
      * @path /saleItems/{saleItemId}
-     * @allow (get, list) Anyone can read sale item information.
-     * @allow (create) Authenticated user can create a sale item.
-     * @allow (update, delete) Authenticated user can update or delete a sale item.
-     * @principle Allows public read access, but enforces owner-only writes.
+     * @allow (get) Any user can retrieve sale item information.
+     * @deny (create) Any user cannot create a new sale item.
+     * @principle Public read, no write access.
      */
     match /saleItems/{saleItemId} {
-        function isSignedIn() {
-          return request.auth != null;
-        }
-
-        allow get, list: if true;
-
-        allow create: if isSignedIn() && request.resource.data.keys().hasAll(['saleTransactionId', 'productId', 'quantity', 'unitPrice']);
-
-        allow update: if isSignedIn();
-
-        allow delete: if isSignedIn();
+      allow get: if true;
+      allow list: if true;
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
     }
 
     /**
-     * @description Secure audit log information.
+     * @description Allows public read access to audit log information, with no write access.
      * @path /auditLogs/{auditLogId}
-     * @allow (get, list) Anyone can read audit log information.
-     * @allow (create) Authenticated user can create an audit log.
-     * @allow (update, delete) Authenticated user can update or delete an audit log.
-     * @principle Allows public read access, but enforces owner-only writes.
+     * @allow (get) Any user can retrieve audit log information.
+     * @deny (create) Any user cannot create a new audit log.
+     * @principle Public read, no write access.
      */
     match /auditLogs/{auditLogId} {
-        function isSignedIn() {
-          return request.auth != null;
-        }
-
-        allow get, list: if true;
-
-        allow create: if isSignedIn() && request.resource.data.keys().hasAll(['userId', 'timestamp', 'action', 'description']);
-
-        allow update: if isSignedIn();
-
-        allow delete: if isSignedIn();
+      allow get: if true;
+      allow list: if true;
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
     }
 
     /**
-     * @description Secure unit information.
+     * @description Allows public read access to unit information, with no write access.
      * @path /units/{unitId}
-     * @allow (get, list) Anyone can read unit information.
-     * @allow (create) Authenticated user can create a unit.
-     * @allow (update, delete) Authenticated user can update or delete a unit.
-     * @principle Allows public read access, but enforces owner-only writes.
+     * @allow (get) Any user can retrieve unit information.
+     * @deny (create) Any user cannot create a new unit.
+     * @principle Public read, no write access.
      */
     match /units/{unitId} {
-        function isSignedIn() {
-          return request.auth != null;
-        }
-
-        allow get, list: if true;
-
-        allow create: if isSignedIn() && request.resource.data.keys().hasAll(['name']);
-
-        allow update: if isSignedIn();
-
-        allow delete: if isSignedIn();
+      allow get: if true;
+      allow list: if true;
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
     }
 
     /**
-     * @description Secure product attribute information.
+     * @description Allows public read access to product attribute information, with no write access.
      * @path /productAttributes/{attributeId}
-     * @allow (get, list) Anyone can read product attribute information.
-     * @allow (create) Authenticated user can create a product attribute.
-     * @allow (update, delete) Authenticated user can update or delete a product attribute.
-     * @principle Allows public read access, but enforces owner-only writes.
+     * @allow (get) Any user can retrieve product attribute information.
+     * @deny (create) Any user cannot create a new product attribute.
+     * @principle Public read, no write access.
      */
     match /productAttributes/{attributeId} {
-        function isSignedIn() {
-          return request.auth != null;
-        }
-
-        allow get, list: if true;
-
-        allow create: if isSignedIn() && request.resource.data.keys().hasAll(['name', 'values']);
-
-        allow update: if isSignedIn();
-
-        allow delete: if isSignedIn();
+      allow get: if true;
+      allow list: if true;
+      allow create: if false;
+      allow update: if false;
+      allow delete: if false;
     }
   }
 }
