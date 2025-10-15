@@ -207,6 +207,41 @@
         "action",
         "description"
       ]
+    },
+    "Unit": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Unit",
+      "type": "object",
+      "description": "Represents a unit of measure (e.g., box, can, kg).",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the unit."
+        },
+        "abbreviation": {
+          "type": "string",
+          "description": "The abbreviation for the unit (e.g., 'kg')."
+        }
+      },
+      "required": ["name"]
+    },
+    "ProductAttribute": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Product Attribute",
+      "type": "object",
+      "description": "Represents a type of product attribute (e.g., Category, Brand, Color).",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The name of the attribute type (e.g., 'Color')."
+        },
+        "values": {
+          "type": "array",
+          "description": "A list of possible values for this attribute.",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["name", "values"]
     }
   },
   "auth": {
@@ -221,67 +256,38 @@
         "path": "/users/{userId}",
         "definition": {
           "entityName": "User",
-          "schema": {
-            "$ref": "#/backend/entities/User"
-          },
+          "schema": { "$ref": "#/backend/entities/User" },
           "description": "Stores user data, including roles for access control. User ID is used for path-based ownership.",
-          "params": [
-            {
-              "name": "userId",
-              "description": "The unique identifier of the user."
-            }
-          ]
+          "params": [{ "name": "userId", "description": "The unique identifier of the user." }]
         }
       },
       {
         "path": "/products/{productId}",
         "definition": {
           "entityName": "Product",
-          "schema": {
-            "$ref": "#/backend/entities/Product"
-          },
+          "schema": { "$ref": "#/backend/entities/Product" },
           "description": "Stores product information, including name, description, barcode, and attributes.",
-          "params": [
-            {
-              "name": "productId",
-              "description": "The unique identifier of the product."
-            }
-          ]
+          "params": [{ "name": "productId", "description": "The unique identifier of the product." }]
         }
       },
       {
         "path": "/inventoryBatches/{inventoryBatchId}",
         "definition": {
           "entityName": "InventoryBatch",
-          "schema": {
-            "$ref": "#/backend/entities/InventoryBatch"
-          },
+          "schema": { "$ref": "#/backend/entities/InventoryBatch" },
           "description": "Tracks inventory batches with receiving dates, quantities, and expiration dates, supporting FIFO inventory management. productId is stored for relationship.",
-          "params": [
-            {
-              "name": "inventoryBatchId",
-              "description": "The unique identifier of the inventory batch."
-            }
-          ]
+          "params": [{ "name": "inventoryBatchId", "description": "The unique identifier of the inventory batch." }]
         }
       },
       {
         "path": "/users/{userId}/saleTransactions/{saleTransactionId}",
         "definition": {
           "entityName": "SaleTransaction",
-          "schema": {
-            "$ref": "#/backend/entities/SaleTransaction"
-          },
+          "schema": { "$ref": "#/backend/entities/SaleTransaction" },
           "description": "Stores sales transactions, linked to users and including transaction date and total amount. User ID is used for path-based ownership.",
           "params": [
-            {
-              "name": "userId",
-              "description": "The unique identifier of the user who made the transaction."
-            },
-            {
-              "name": "saleTransactionId",
-              "description": "The unique identifier of the sale transaction."
-            }
+            { "name": "userId", "description": "The unique identifier of the user who made the transaction." },
+            { "name": "saleTransactionId", "description": "The unique identifier of the sale transaction." }
           ]
         }
       },
@@ -289,35 +295,39 @@
         "path": "/saleItems/{saleItemId}",
         "definition": {
           "entityName": "SaleItem",
-          "schema": {
-            "$ref": "#/backend/entities/SaleItem"
-          },
+          "schema": { "$ref": "#/backend/entities/SaleItem" },
           "description": "Represents items within a sale transaction, linked to products and sale transactions.",
-          "params": [
-            {
-              "name": "saleItemId",
-              "description": "The unique identifier of the sale item."
-            }
-          ]
+          "params": [{ "name": "saleItemId", "description": "The unique identifier of the sale item." }]
         }
       },
       {
         "path": "/auditLogs/{auditLogId}",
         "definition": {
           "entityName": "AuditLog",
-          "schema": {
-            "$ref": "#/backend/entities/AuditLog"
-          },
+          "schema": { "$ref": "#/backend/entities/AuditLog" },
           "description": "Logs all actions performed in the system, including user ID, timestamp, action, and description, ensuring accountability.",
-          "params": [
-            {
-              "name": "auditLogId",
-              "description": "The unique identifier of the audit log entry."
-            }
-          ]
+          "params": [{ "name": "auditLogId", "description": "The unique identifier of the audit log entry." }]
+        }
+      },
+      {
+        "path": "/units/{unitId}",
+        "definition": {
+          "entityName": "Unit",
+          "schema": { "$ref": "#/backend/entities/Unit" },
+          "description": "Stores units of measure for products.",
+          "params": [{ "name": "unitId", "description": "The unique identifier for the unit." }]
+        }
+      },
+      {
+        "path": "/productAttributes/{attributeId}",
+        "definition": {
+          "entityName": "ProductAttribute",
+          "schema": { "$ref": "#/backend/entities/ProductAttribute" },
+          "description": "Stores definitions for product attributes, like 'Category' or 'Brand', and their possible values.",
+          "params": [{ "name": "attributeId", "description": "The unique identifier for the attribute type (e.g., 'category', 'brand')." }]
         }
       }
     ],
-    "reasoning": "The Firestore structure is designed to support a secure and efficient POS and inventory system, focusing on minimizing employee theft and implementing FIFO inventory management. Authorization Independence is achieved through path-based ownership and denormalization where applicable. Segregation is used to enforce homogeneous security postures on collections. The structure facilitates secure 'list' operations by avoiding rules that act as filters.\n\n1.  **Users Collection:** Stores user data with roles for access control.\n2.  **Products Collection:** Stores product information, including attributes.\n3.  **InventoryBatches Collection:** Tracks inventory batches with FIFO management using receiving dates.\n4.  **SaleTransactions Collection:** Records sales transactions, linked to users and including total amounts.\n5.  **SaleItems Collection:** Represents items within a sale transaction, linked to products and sale transactions.\n6.  **AuditLogs Collection:** Logs all actions performed in the system, ensuring accountability.\n\nThis structure ensures that rules can be written to validate data and enforce business logic related to preventing theft. The use of user-owned subcollections provides a clear and auditable structure.\n\n**Authorization Independence:** The design favors path-based ownership for user-related data, eliminating the need for `get()` calls in security rules. For example, `SaleTransactions` are stored under `/users/{userId}/saleTransactions/{saleTransactionId}`, granting straightforward ownership-based access control.\n\n**QAPs (Rules are not Filters):** The collections are designed to allow secure `list` operations. For example, listing products does not require filtering based on user roles. Access control is enforced at the document level, ensuring that users can only access data they are authorized to view."
+    "reasoning": "The Firestore structure is designed to support a secure and efficient POS and inventory system, focusing on minimizing employee theft and implementing FIFO inventory management. Authorization Independence is achieved through path-based ownership and denormalization where applicable. Segregation is used to enforce homogeneous security postures on collections. The structure facilitates secure 'list' operations by avoiding rules that act as filters.\n\n1.  **Users Collection:** Stores user data with roles for access control.\n2.  **Products Collection:** Stores product information, including attributes.\n3.  **InventoryBatches Collection:** Tracks inventory batches with FIFO management using receiving dates.\n4.  **SaleTransactions Collection:** Records sales transactions, linked to users and including total amounts.\n5.  **SaleItems Collection:** Represents items within a sale transaction, linked to products and sale transactions.\n6.  **AuditLogs Collection:** Logs all actions performed in the system, ensuring accountability.\n7.  **Units Collection:** Stores units of measure (e.g., kg, box) for products, allowing for consistent inventory tracking.\n8.  **ProductAttributes Collection:** Stores attribute definitions (e.g., Category, Brand) and their allowed values, centralizing product classification and making forms dynamic.\n\nThis structure ensures that rules can be written to validate data and enforce business logic related to preventing theft. The use of user-owned subcollections provides a clear and auditable structure.\n\n**Authorization Independence:** The design favors path-based ownership for user-related data, eliminating the need for `get()` calls in security rules. For example, `SaleTransactions` are stored under `/users/{userId}/saleTransactions/{saleTransactionId}`, granting straightforward ownership-based access control.\n\n**QAPs (Rules are not Filters):** The collections are designed to allow secure `list` operations. For example, listing products does not require filtering based on user roles. Access control is enforced at the document level, ensuring that users can only access data they are authorized to view."
   }
 }

@@ -1,6 +1,7 @@
 
 'use client';
 
+import { useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -31,6 +32,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { ScrollArea } from './ui/scroll-area';
+import { useCollection, useFirestore, useMemoFirebase } from '@/firebase';
+import { collection } from 'firebase/firestore';
+import { AddAttributeDialog } from './add-attribute-dialog';
 
 const addProductSchema = z.object({
   productNumber: z.string().optional(),
@@ -66,6 +70,16 @@ interface AddProductDialogProps {
 
 export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) {
   const { toast } = useToast();
+  const firestore = useFirestore();
+  const [isAddAttributeOpen, setIsAddAttributeOpen] = useState(false);
+  const [currentAttributeType, setCurrentAttributeType] = useState<'category' | 'brand' | 'position' | null>(null);
+
+  const { data: categories } = useCollection(useMemoFirebase(() => firestore ? collection(firestore, 'productAttributes', 'category', 'values') : null, [firestore]));
+  const { data: brands } = useCollection(useMemoFirebase(() => firestore ? collection(firestore, 'productAttributes', 'brand', 'values') : null, [firestore]));
+  const { data: positions } = useCollection(useMemoFirebase(() => firestore ? collection(firestore, 'productAttributes', 'position', 'values') : null, [firestore]));
+  const { data: weightUnits } = useCollection(useMemoFirebase(() => firestore ? collection(firestore, 'units') : null, [firestore]));
+
+
   const form = useForm<AddProductFormValues>({
     resolver: zodResolver(addProductSchema),
     defaultValues: {
@@ -90,6 +104,11 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
     name: 'attributes',
   });
 
+  const handleCreateAttribute = (type: 'category' | 'brand' | 'position') => {
+    setCurrentAttributeType(type);
+    setIsAddAttributeOpen(true);
+  };
+
   async function onSubmit(values: AddProductFormValues) {
     try {
       await addProduct(values as any); // The schema is slightly different but compatible
@@ -109,10 +128,11 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl p-0">
+      <DialogContent className="max-w-5xl h-[90vh] flex flex-col p-0">
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-full max-h-[90vh]">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-full">
             <DialogHeader className="p-6 pb-4 border-b">
               <DialogTitle>Create product</DialogTitle>
             </DialogHeader>
@@ -177,15 +197,14 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                                           <Select onValueChange={field.onChange} defaultValue={field.value}>
                                             <FormControl>
                                               <SelectTrigger>
-                                                <SelectValue placeholder="Select category (Required)" />
+                                                <SelectValue placeholder="Select category" />
                                               </SelectTrigger>
                                             </FormControl>
                                             <SelectContent>
-                                              <SelectItem value="coffee">Coffee</SelectItem>
-                                              <SelectItem value="tea">Tea</SelectItem>
+                                              {categories?.map((c: any) => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}
                                             </SelectContent>
                                           </Select>
-                                          <Button variant="link" className="p-0 h-auto">Create</Button>
+                                          <Button type="button" variant="link" className="p-0 h-auto" onClick={() => handleCreateAttribute('category')}>Create</Button>
                                           </div>
                                         </FormItem>
                                       )}
@@ -204,10 +223,10 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                                               </SelectTrigger>
                                             </FormControl>
                                             <SelectContent>
-                                              <SelectItem value="secure-brand">SecureBrand</SelectItem>
+                                              {brands?.map((b: any) => <SelectItem key={b.id} value={b.name}>{b.name}</SelectItem>)}
                                             </SelectContent>
                                           </Select>
-                                          <Button variant="link" className="p-0 h-auto">Create</Button>
+                                          <Button type="button" variant="link" className="p-0 h-auto" onClick={() => handleCreateAttribute('brand')}>Create</Button>
                                           </div>
                                         </FormItem>
                                       )}
@@ -322,10 +341,10 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                                           </SelectTrigger>
                                         </FormControl>
                                         <SelectContent>
-                                          <SelectItem value="a1">A1</SelectItem>
+                                          {positions?.map((p: any) => <SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>)}
                                         </SelectContent>
                                       </Select>
-                                      <Button variant="link" className="p-0 h-auto">Create</Button>
+                                      <Button type="button" variant="link" className="p-0 h-auto" onClick={() => handleCreateAttribute('position')}>Create</Button>
                                       </div>
                                     </FormItem>
                                   )}
@@ -343,17 +362,15 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                                             <FormField
                                                 control={form.control}
                                                 name="weightUnit"
-                                                render={({ field }) => (
-                                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                                render={({ field: selectField }) => (
+                                                <Select onValueChange={selectField.onChange} defaultValue={selectField.value}>
                                                     <FormControl>
                                                         <SelectTrigger className="absolute right-1 top-1/2 -translate-y-1/2 w-14 h-8 border-none bg-transparent">
                                                             <SelectValue />
                                                         </SelectTrigger>
                                                     </FormControl>
                                                     <SelectContent>
-                                                        <SelectItem value="g">g</SelectItem>
-                                                        <SelectItem value="kg">kg</SelectItem>
-                                                        <SelectItem value="lb">lb</SelectItem>
+                                                        {weightUnits?.map((u: any) => <SelectItem key={u.id} value={u.abbreviation}>{u.abbreviation}</SelectItem>)}
                                                     </SelectContent>
                                                 </Select>
                                                 )}
@@ -480,6 +497,11 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
         </Form>
       </DialogContent>
     </Dialog>
+    <AddAttributeDialog
+      open={isAddAttributeOpen}
+      onOpenChange={setIsAddAttributeOpen}
+      attributeType={currentAttributeType}
+    />
+    </>
   );
 }
- 
