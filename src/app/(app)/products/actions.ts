@@ -1,19 +1,21 @@
 
 'use server';
 
-import { initializeFirebase, addDocumentNonBlocking } from '@/firebase';
+import { addDocumentNonBlocking } from '@/firebase';
+import { initializeFirebase } from '@/firebase';
 import { collection } from 'firebase/firestore';
 
-type ProductAttribute = {
-  key: string;
-  value: string;
-};
-
+// This is a simplified version of the form data
 type ProductData = {
   name: string;
   description: string;
   barcode: string;
-  attributes: ProductAttribute[];
+  attributes: {
+    key: string;
+    value: string;
+  }[];
+  costPrice?: number;
+  sellingPrice?: number;
 };
 
 export async function addProduct(productData: ProductData) {
