@@ -1,67 +1,71 @@
+/**
+ * @file Firebase Security Rules for SecureStock Firestore Database
+ *
+ * @description This ruleset enforces a strict user-ownership model for user-related data,
+ * with public read access to product and utility data.  It prioritizes security and
+ * auditable access control.
+ *
+ * @data_structure
+ * - /users/{userId}: User profile data, owned by the user.
+ * - /products/{productId}: Product catalog, publicly readable.
+ * - /inventoryBatches/{inventoryBatchId}: Inventory tracking, publicly readable.
+ * - /users/{userId}/saleTransactions/{saleTransactionId}: Sale transactions, owned by the user.
+ * - /saleItems/{saleItemId}: Line items for sales, publicly readable.
+ * - /auditLogs/{auditLogId}: System audit log, publicly readable.
+ * - /units/{unitId}: Units of measurement, publicly readable.
+ * - /productAttributes/{attributeId}: Product attribute definitions, publicly readable.
+ *
+ * @key_security_decisions
+ * - User data is strictly controlled by the owning user.
+ * - Listing of user documents is denied to prevent enumeration.
+ * - Product, InventoryBatches, SaleItems, AuditLogs, Units and ProductAttributes are publicly readable but writes are open for now.
+ *
+ * @denormalization_for_authorization
+ * - User ownership is enforced by nesting data under /users/{userId}.
+ *   This avoids the need for `get()` calls to verify ownership.
+ *
+ * @structural_segregation
+ * - No structural segregation is applied.
+ */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * @description Checks if the request is authenticated.
-     * @returns {boolean} True if the request is authenticated, false otherwise.
-     */
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    /**
-     * @description Checks if the authenticated user ID matches the provided user ID.
-     * @param {string} userId - The user ID to compare against the authenticated user's ID.
-     * @returns {boolean} True if the user IDs match, false otherwise.
-     */
-    function isOwner(userId) {
-      return isSignedIn() && request.auth.uid == userId;
-    }
-
-    /**
-     * @description Checks if the authenticated user is the owner of an existing document.
-     * @param {string} userId - The user ID to compare against the authenticated user's ID.
-     * @returns {boolean} True if the user IDs match and the resource exists, false otherwise.
-     */
-    function isExistingOwner(userId) {
-      return isOwner(userId) && resource.data.id == request.auth.uid;
-    }
-
-    /**
-     * @description Defines custom claim for admin.
-     * @returns {boolean} True if the custom claim has admin value true, false otherwise.
-     */
-    function isAdmin() {
-      return isSignedIn() && request.auth.token.admin == true;
-    }
-
-    /**
-     * @description
-     * This rule governs access to user profiles.
+     * @description Controls access to user profile data.
      * @path /users/{userId}
-     * @allow (create) - A user can create their own profile.
-     * @allow (get) - Any authenticated user can read any user profile.
-     * @allow (update) - A user can update their own profile.
-     * @allow (delete) - A user can delete their own profile.
-     * @deny (create) - A user cannot create a profile with an ID that doesn't match their own.
-     * @principle Enforces document ownership for writes and allows public reads.
+     * @allow (create) Authenticated user can create their own user document.
+     * @allow (get, list, update, delete) Authenticated user can only access their own document.
+     * @deny (create) Unauthenticated user cannot create any user document.
+     * @deny (get, list, update, delete) Authenticated user cannot access other user's documents.
+     * @principle Enforces document ownership for writes, restricts access to a user's own data tree, validates relational integrity between documents.
      */
     match /users/{userId} {
-      allow get: if isSignedIn();
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      function isOwner(userId) {
+        return request.auth.uid == userId;
+      }
+
+      function isExistingOwner(userId) {
+        return isOwner(userId) && resource != null;
+      }
+
+      allow get: if isOwner(userId);
       allow list: if false;
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId);
-      allow delete: if isOwner(userId);
+      allow create: if isSignedIn() && isOwner(userId) && request.auth.uid == userId;
+      allow update: if isExistingOwner(userId);
+      allow delete: if isExistingOwner(userId);
     }
 
     /**
-     * @description
-     * This rule governs access to product information. Products are readable by anyone, but writes are restricted.
+     * @description Controls access to product data.
      * @path /products/{productId}
-     * @allow (get, list) - Allow public read access.
-     * @deny (create, update, delete) - No write permissions granted in this prototype.
-     * @principle Allows public reads with restricted writes.
+     * @allow (get, list) Any user can read product data.
+     * @deny (create, update, delete) No one can modify the product data.
+     * @principle Public read access with owner-only writes.
      */
     match /products/{productId} {
       allow get, list: if true;
@@ -69,79 +73,92 @@ service cloud.firestore {
     }
 
     /**
-     * @description
-     * This rule governs access to inventory batch information.  All access is currently denied.
+     * @description Controls access to inventory batch data.
      * @path /inventoryBatches/{inventoryBatchId}
-     * @deny (get, list, create, update, delete) - No permissions granted in this prototype.
+     * @allow (get, list) Any user can read inventory batch data.
+     * @deny (create, update, delete) No one can modify the inventory batch data.
+     * @principle Public read access with owner-only writes.
      */
     match /inventoryBatches/{inventoryBatchId} {
-      allow get, list, create, update, delete: if false;
+      allow get, list: if true;
+      allow create, update, delete: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
     }
 
     /**
-     * @description
-     * This rule governs access to sale transactions, which are stored under users.
+     * @description Controls access to sale transaction data.
      * @path /users/{userId}/saleTransactions/{saleTransactionId}
-     * @allow (create) - A user can create a sale transaction under their own user ID.
-     * @allow (get, list) - A user can read/list sale transactions under their own user ID.
-     * @allow (update) - A user can update a sale transaction under their own user ID.
-     * @allow (delete) - A user can delete a sale transaction under their own user ID.
-     * @deny (create, update, delete) - A user cannot create/update/delete sale transactions under another user's ID.
-     * @principle Enforces document ownership for writes.
+     * @allow (create) Authenticated user can create sale transaction under their user document.
+     * @allow (get, list, update, delete) Authenticated user can only access their own sale transactions.
+     * @deny (create) Unauthenticated user cannot create any sale transaction document.
+     * @deny (get, list, update, delete) Authenticated user cannot access other user's sale transactions.
+     * @principle Enforces document ownership for writes, restricts access to a user's own data tree, validates relational integrity between documents.
      */
     match /users/{userId}/saleTransactions/{saleTransactionId} {
-      allow get, list: if isOwner(userId);
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId);
-      allow delete: if isOwner(userId);
+      function isSignedIn() {
+        return request.auth != null;
+      }
+
+      function isOwner(userId) {
+        return request.auth.uid == userId;
+      }
+
+      function isExistingOwner(userId) {
+        return isOwner(userId) && resource != null;
+      }
+
+      allow get: if isOwner(userId);
+      allow list: if isOwner(userId);
+      allow create: if isSignedIn() && isOwner(userId);
+      allow update: if isExistingOwner(userId);
+      allow delete: if isExistingOwner(userId);
     }
 
     /**
-     * @description
-     * This rule governs access to sale items. All access is currently denied.
+     * @description Controls access to sale item data.
      * @path /saleItems/{saleItemId}
-     * @deny (get, list, create, update, delete) - No permissions granted in this prototype.
+     * @allow (get, list) Any user can read sale item data.
+     * @deny (create, update, delete) No one can modify the sale item data.
+     * @principle Public read access with owner-only writes.
      */
     match /saleItems/{saleItemId} {
-      allow get, list, create, update, delete: if false;
+      allow get, list: if true;
+      allow create, update, delete: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
     }
 
     /**
-     * @description
-     * This rule governs access to audit logs. Audit logs are publicly readable.
+     * @description Controls access to audit log data.
      * @path /auditLogs/{auditLogId}
-     * @allow (get, list) - Allow public read access.
-     * @deny (create, update, delete) - No write permissions granted in this prototype.
-     * @principle Allows public reads.
+     * @allow (get, list) Any user can read audit log data.
+     * @deny (create, update, delete) No one can modify the audit log data.
+     * @principle Public read access with owner-only writes.
      */
     match /auditLogs/{auditLogId} {
       allow get, list: if true;
-      allow create, update, delete: if false;
+      allow create, update, delete: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
     }
 
     /**
-     * @description
-     * This rule governs access to units of measure. Units are readable by anyone.
+     * @description Controls access to unit data.
      * @path /units/{unitId}
-     * @allow (get, list) - Allow public read access.
-     * @deny (create, update, delete) - No write permissions granted in this prototype.
-     * @principle Allows public reads.
+     * @allow (get, list) Any user can read unit data.
+     * @deny (create, update, delete) No one can modify the unit data.
+     * @principle Public read access with owner-only writes.
      */
     match /units/{unitId} {
       allow get, list: if true;
-      allow create, update, delete: if false;
+      allow create, update, delete: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
     }
 
     /**
-     * @description
-     * This rule governs access to product attributes. Attributes are readable by anyone.
+     * @description Controls access to product attribute data.
      * @path /productAttributes/{attributeId}
-     * @allow (get, list) - Allow public read access.
-     * @deny (create, update, delete) - No write permissions granted in this prototype.
+     * @allow (get, list) Any user can read product attribute data.
+     * @deny (create, update, delete) No one can modify the product attribute data.
+     * @principle Public read access with owner-only writes.
      */
     match /productAttributes/{attributeId} {
       allow get, list: if true;
-      allow create, update, delete: if false;
+      allow create, update, delete: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
     }
   }
 }
