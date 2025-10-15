@@ -32,8 +32,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { ScrollArea } from './ui/scroll-area';
-import { useCollection, useFirestore, useMemoFirebase } from '@/firebase';
-import { collection } from 'firebase/firestore';
+import { useCollection, useDoc, useFirestore, useMemoFirebase } from '@/firebase';
+import { collection, doc } from 'firebase/firestore';
 import { AddAttributeDialog } from './add-attribute-dialog';
 
 const addProductSchema = z.object({
@@ -74,10 +74,14 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
   const [isAddAttributeOpen, setIsAddAttributeOpen] = useState(false);
   const [currentAttributeType, setCurrentAttributeType] = useState<'category' | 'brand' | 'position' | null>(null);
 
-  const { data: categories } = useCollection(useMemoFirebase(() => firestore ? collection(firestore, 'productAttributes', 'category', 'values') : null, [firestore]));
-  const { data: brands } = useCollection(useMemoFirebase(() => firestore ? collection(firestore, 'productAttributes', 'brand', 'values') : null, [firestore]));
-  const { data: positions } = useCollection(useMemoFirebase(() => firestore ? collection(firestore, 'productAttributes', 'position', 'values') : null, [firestore]));
+  const { data: categoryData } = useDoc(useMemoFirebase(() => firestore ? doc(firestore, 'productAttributes', 'category') : null, [firestore]));
+  const { data: brandData } = useDoc(useMemoFirebase(() => firestore ? doc(firestore, 'productAttributes', 'brand') : null, [firestore]));
+  const { data: positionData } = useDoc(useMemoFirebase(() => firestore ? doc(firestore, 'productAttributes', 'position') : null, [firestore]));
   const { data: weightUnits } = useCollection(useMemoFirebase(() => firestore ? collection(firestore, 'units') : null, [firestore]));
+
+  const categories = categoryData?.values || [];
+  const brands = brandData?.values || [];
+  const positions = positionData?.values || [];
 
 
   const form = useForm<AddProductFormValues>({
@@ -201,7 +205,7 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                                               </SelectTrigger>
                                             </FormControl>
                                             <SelectContent>
-                                              {categories?.map((c: any) => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)}
+                                              {categories?.map((c: any) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                                             </SelectContent>
                                           </Select>
                                           <Button type="button" variant="link" className="p-0 h-auto" onClick={() => handleCreateAttribute('category')}>Create</Button>
@@ -216,17 +220,17 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                                         <FormItem>
                                           <FormLabel>Brand</FormLabel>
                                           <div className='flex items-center gap-2'>
-                                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                            <FormControl>
-                                              <SelectTrigger>
-                                                <SelectValue placeholder="Select brand" />
-                                              </SelectTrigger>
-                                            </FormControl>
-                                            <SelectContent>
-                                              {brands?.map((b: any) => <SelectItem key={b.id} value={b.name}>{b.name}</SelectItem>)}
-                                            </SelectContent>
-                                          </Select>
-                                          <Button type="button" variant="link" className="p-0 h-auto" onClick={() => handleCreateAttribute('brand')}>Create</Button>
+                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                              <FormControl>
+                                                <SelectTrigger>
+                                                  <SelectValue placeholder="Select brand" />
+                                                </SelectTrigger>
+                                              </FormControl>
+                                              <SelectContent>
+                                                {brands?.map((b: any) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                                              </SelectContent>
+                                            </Select>
+                                            <Button type="button" variant="link" className="p-0 h-auto" onClick={() => handleCreateAttribute('brand')}>Create</Button>
                                           </div>
                                         </FormItem>
                                       )}
@@ -341,7 +345,7 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                                           </SelectTrigger>
                                         </FormControl>
                                         <SelectContent>
-                                          {positions?.map((p: any) => <SelectItem key={p.id} value={p.name}>{p.name}</SelectItem>)}
+                                          {positions?.map((p: any) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
                                         </SelectContent>
                                       </Select>
                                       <Button type="button" variant="link" className="p-0 h-auto" onClick={() => handleCreateAttribute('position')}>Create</Button>
@@ -505,3 +509,5 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
     </>
   );
 }
+
+    
