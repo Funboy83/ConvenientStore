@@ -1,0 +1,315 @@
+{
+  "entities": {
+    "User": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "User",
+      "type": "object",
+      "description": "Represents a user in the SecureStock system.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the user entity."
+        },
+        "username": {
+          "type": "string",
+          "description": "The user's username."
+        },
+        "role": {
+          "type": "string",
+          "description": "The user's role (e.g., Cashier, Manager, Administrator)."
+        }
+      },
+      "required": [
+        "id",
+        "username",
+        "role"
+      ]
+    },
+    "Product": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "Product",
+      "type": "object",
+      "description": "Represents a product in the inventory.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the product entity."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the product."
+        },
+        "description": {
+          "type": "string",
+          "description": "A description of the product."
+        },
+        "barcode": {
+          "type": "string",
+          "description": "The barcode of the product."
+        },
+        "attributes": {
+          "type": "array",
+          "description": "list of the attributes of this product, the type of attributes must be defined to string",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "description",
+        "barcode"
+      ]
+    },
+    "InventoryBatch": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "InventoryBatch",
+      "type": "object",
+      "description": "Represents a batch of inventory received at a specific time.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the inventory batch entity."
+        },
+        "productId": {
+          "type": "string",
+          "description": "Reference to Product. (Relationship: Product 1:N InventoryBatch)"
+        },
+        "receivingDate": {
+          "type": "string",
+          "description": "The date the inventory was received.",
+          "format": "date-time"
+        },
+        "quantity": {
+          "type": "number",
+          "description": "The quantity of the product in this batch."
+        },
+        "expirationDate": {
+          "type": "string",
+          "description": "The expiration date of the product in this batch, if applicable.",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "productId",
+        "receivingDate",
+        "quantity"
+      ]
+    },
+    "SaleTransaction": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "SaleTransaction",
+      "type": "object",
+      "description": "Represents a sale transaction.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the sale transaction entity."
+        },
+        "userId": {
+          "type": "string",
+          "description": "Reference to User. (Relationship: User 1:N SaleTransaction)"
+        },
+        "transactionDate": {
+          "type": "string",
+          "description": "The date and time of the transaction.",
+          "format": "date-time"
+        },
+        "totalAmount": {
+          "type": "number",
+          "description": "The total amount of the transaction."
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "transactionDate",
+        "totalAmount"
+      ]
+    },
+    "SaleItem": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "SaleItem",
+      "type": "object",
+      "description": "Represents an item within a sale transaction.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the sale item entity."
+        },
+        "saleTransactionId": {
+          "type": "string",
+          "description": "Reference to SaleTransaction. (Relationship: SaleTransaction 1:N SaleItem)"
+        },
+        "productId": {
+          "type": "string",
+          "description": "Reference to Product. (Relationship: Product 1:N SaleItem)"
+        },
+        "quantity": {
+          "type": "number",
+          "description": "The quantity of the product sold."
+        },
+        "unitPrice": {
+          "type": "number",
+          "description": "The price of a single unit of the product."
+        }
+      },
+      "required": [
+        "id",
+        "saleTransactionId",
+        "productId",
+        "quantity",
+        "unitPrice"
+      ]
+    },
+    "AuditLog": {
+      "$schema": "http://json-schema.org/draft-07/schema#",
+      "title": "AuditLog",
+      "type": "object",
+      "description": "Represents an audit log entry.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier for the audit log entry."
+        },
+        "userId": {
+          "type": "string",
+          "description": "Reference to User. (Relationship: User 1:N AuditLog)"
+        },
+        "timestamp": {
+          "type": "string",
+          "description": "The date and time of the event.",
+          "format": "date-time"
+        },
+        "action": {
+          "type": "string",
+          "description": "The action performed (e.g., sale, return, void)."
+        },
+        "description": {
+          "type": "string",
+          "description": "A description of the event."
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "timestamp",
+        "action",
+        "description"
+      ]
+    }
+  },
+  "auth": {
+    "providers": [
+      "password",
+      "anonymous"
+    ]
+  },
+  "firestore": {
+    "structure": [
+      {
+        "path": "/users/{userId}",
+        "definition": {
+          "entityName": "User",
+          "schema": {
+            "$ref": "#/backend/entities/User"
+          },
+          "description": "Stores user data, including roles for access control. User ID is used for path-based ownership.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier of the user."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/products/{productId}",
+        "definition": {
+          "entityName": "Product",
+          "schema": {
+            "$ref": "#/backend/entities/Product"
+          },
+          "description": "Stores product information, including name, description, barcode, and attributes.",
+          "params": [
+            {
+              "name": "productId",
+              "description": "The unique identifier of the product."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/inventoryBatches/{inventoryBatchId}",
+        "definition": {
+          "entityName": "InventoryBatch",
+          "schema": {
+            "$ref": "#/backend/entities/InventoryBatch"
+          },
+          "description": "Tracks inventory batches with receiving dates, quantities, and expiration dates, supporting FIFO inventory management. productId is stored for relationship.",
+          "params": [
+            {
+              "name": "inventoryBatchId",
+              "description": "The unique identifier of the inventory batch."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/users/{userId}/saleTransactions/{saleTransactionId}",
+        "definition": {
+          "entityName": "SaleTransaction",
+          "schema": {
+            "$ref": "#/backend/entities/SaleTransaction"
+          },
+          "description": "Stores sales transactions, linked to users and including transaction date and total amount. User ID is used for path-based ownership.",
+          "params": [
+            {
+              "name": "userId",
+              "description": "The unique identifier of the user who made the transaction."
+            },
+            {
+              "name": "saleTransactionId",
+              "description": "The unique identifier of the sale transaction."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/saleItems/{saleItemId}",
+        "definition": {
+          "entityName": "SaleItem",
+          "schema": {
+            "$ref": "#/backend/entities/SaleItem"
+          },
+          "description": "Represents items within a sale transaction, linked to products and sale transactions.",
+          "params": [
+            {
+              "name": "saleItemId",
+              "description": "The unique identifier of the sale item."
+            }
+          ]
+        }
+      },
+      {
+        "path": "/auditLogs/{auditLogId}",
+        "definition": {
+          "entityName": "AuditLog",
+          "schema": {
+            "$ref": "#/backend/entities/AuditLog"
+          },
+          "description": "Logs all actions performed in the system, including user ID, timestamp, action, and description, ensuring accountability.",
+          "params": [
+            {
+              "name": "auditLogId",
+              "description": "The unique identifier of the audit log entry."
+            }
+          ]
+        }
+      }
+    ],
+    "reasoning": "The Firestore structure is designed to support a secure and efficient POS and inventory system, focusing on minimizing employee theft and implementing FIFO inventory management. Authorization Independence is achieved through path-based ownership and denormalization where applicable. Segregation is used to enforce homogeneous security postures on collections. The structure facilitates secure 'list' operations by avoiding rules that act as filters.\n\n1.  **Users Collection:** Stores user data with roles for access control.\n2.  **Products Collection:** Stores product information, including attributes.\n3.  **InventoryBatches Collection:** Tracks inventory batches with FIFO management using receiving dates.\n4.  **SaleTransactions Collection:** Records sales transactions, linked to users and including total amounts.\n5.  **SaleItems Collection:** Represents items within a sale transaction, linked to products and sale transactions.\n6.  **AuditLogs Collection:** Logs all actions performed in the system, ensuring accountability.\n\nThis structure ensures that rules can be written to validate data and enforce business logic related to preventing theft. The use of user-owned subcollections provides a clear and auditable structure.\n\n**Authorization Independence:** The design favors path-based ownership for user-related data, eliminating the need for `get()` calls in security rules. For example, `SaleTransactions` are stored under `/users/{userId}/saleTransactions/{saleTransactionId}`, granting straightforward ownership-based access control.\n\n**QAPs (Rules are not Filters):** The collections are designed to allow secure `list` operations. For example, listing products does not require filtering based on user roles. Access control is enforced at the document level, ensuring that users can only access data they are authorized to view."
+  }
+}
