@@ -1,156 +1,183 @@
 /**
- * @fileoverview Firestore Security Rules for SecureStock POS and Inventory System.
+ * @file Firebase Security Rules for SecureStock POS and Inventory System.
  *
- * Core Philosophy:
- * This ruleset enforces a strict user-ownership model for user-specific data, with additional controls for data integrity and auditability.
- * Data relating to Products, Units, and ProductAttributes is globally available for read operations.
+ * @Core Philosophy
+ * This ruleset enforces a strict user-ownership model for user-specific data while allowing public read access to product and related information.
+ * The primary goal is to prevent unauthorized access and data manipulation, focusing on mitigating employee theft and ensuring data integrity.
  *
- * Data Structure:
- * - /users/{userId}: Stores individual user profiles, accessible only to the owning user.
- * - /users/{userId}/saleTransactions/{saleTransactionId}: Stores sale transactions for a specific user, accessible only to that user.
- * - /products/{productId}: Stores product information, publicly readable.
- * - /inventoryBatches/{inventoryBatchId}: Stores inventory batch information, publicly readable.
- * - /saleItems/{saleItemId}: Stores individual sale items, publicly readable.
- * - /auditLogs/{auditLogId}: Stores audit logs, publicly readable.
- * - /units/{unitId}: Stores units of measure, publicly readable.
- * - /productAttributes/{attributeId}: Stores product attributes, publicly readable.
+ * @Data Structure
+ * - /users/{userId}: Stores individual user profiles, secured with owner-only access.
+ * - /products/{productId}: Stores product details, publicly readable but only writable by authorized users (TODO: Define authorized users/roles).
+ * - /inventoryBatches/{inventoryBatchId}: Stores inventory batch information, publicly readable but only writable by authorized users (TODO: Define authorized users/roles).
+ * - /users/{userId}/saleTransactions/{saleTransactionId}: Stores sale transactions for each user, secured with owner-only access.
+ * - /saleItems/{saleItemId}: Stores individual sale items, publicly readable but only writable by authorized users (TODO: Define authorized users/roles).
+ * - /auditLogs/{auditLogId}: Stores audit logs, publicly readable but only writable by authorized users (TODO: Define authorized users/roles).
+ * - /units/{unitId}: Stores units of measurement, publicly readable but only writable by authorized users (TODO: Define authorized users/roles).
+ * - /productAttributes/{attributeId}: Stores product attribute definitions, publicly readable but only writable by authorized users (TODO: Define authorized users/roles).
  *
- * Key Security Decisions:
- * - User listing is explicitly denied to prevent unauthorized access to user data.
- * - Public read access is granted to product, inventory, sale items, audit logs, units and product attributes to allow for open access and easy listing. Writes must be secured.
- * - Write access to user documents and sale transactions is restricted to the owning user.
- * - No schema validation is performed during this prototyping phase, except for enforcing ownership on `create` and immutability on `update`.
+ * @Key Security Decisions
+ * - User listing is explicitly denied to prevent unauthorized enumeration of user accounts.
+ * - All write operations on non-user-owned data (products, inventory, sales items, audit logs, units, product attributes) are currently disabled and marked with TODOs. These require a role-based access control implementation in the future.
+ * - Data validation is minimized for prototyping but MUST be expanded in production to enforce schema constraints.
  *
- * Denormalization for Authorization:
- * - SaleTransactions are stored as subcollections of users to enable owner-based security rules.
+ * @Denormalization for Authorization
+ *  None, this initial ruleset relies primarily on path-based authorization.  Future iterations may include denormalized role information in user documents.
  *
- * Structural Segregation:
- * - User-specific data (users and sale transactions) is segregated from public data (products, inventory batches, sale items, audit logs, units and product attributes) to enforce different security postures.
+ * @Structural Segregation
+ * User-specific data (saleTransactions) is stored in user subcollections to simplify ownership checks and access control. Publicly readable data (products, etc.) is stored in top-level collections.
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
     /**
-     * @description Manages access to user profiles. Only the authenticated user can read and write their own profile.
+     * @description Controls access to user profile documents.
      * @path /users/{userId}
-     * @allow (create) User with ID 'user123' can create their profile if authenticated as 'user123'.
-     * @allow (get, update, delete) User with ID 'user123' can read, update, and delete their profile if authenticated as 'user123'.
-     * @deny (create) User with ID 'user123' cannot create a profile with ID 'user456' while authenticated as 'user123'.
-     * @deny (get, update, delete) User with ID 'user456' cannot read, update, or delete the profile of 'user123' while authenticated as 'user456'.
-     * @principle Enforces document ownership for all operations on user profiles.
+     * @allow (create) User with ID 'user123' can create their own profile.
+     *    - request.auth.uid: 'user123'
+     *    - resource.data.id: 'user123'
+     * @deny (create) User with ID 'user123' cannot create a profile for 'user456'.
+     *    - request.auth.uid: 'user123'
+     *    - resource.data.id: 'user456'
+     * @allow (get, list) User with ID 'user123' can read their profile.
+     *    - request.auth.uid: 'user123'
+     * @deny (get, list) User with ID 'user123' cannot read the profile of 'user456'.
+     *    - request.auth.uid: 'user123'
+     * @allow (update) User with ID 'user123' can update their own profile.
+     *    - request.auth.uid: 'user123'
+     *    - resource.data.id: 'user123'
+     * @deny (update) User with ID 'user123' cannot update the profile of 'user456'.
+     *    - request.auth.uid: 'user123'
+     *    - resource.data.id: 'user456'
+     * @allow (delete) User with ID 'user123' can delete their own profile.
+     *    - request.auth.uid: 'user123'
+     *    - resource.data.id: 'user123'
+     * @deny (delete) User with ID 'user123' cannot delete the profile of 'user456'.
+     *    - request.auth.uid: 'user123'
+     *    - resource.data.id: 'user456'
+     * @principle Enforces document ownership for all operations.
      */
     match /users/{userId} {
-      // Only signed-in users can attempt to access user documents
-      allow get: if isSignedIn() && isOwner(userId);
-      allow list: if false; // User listing is not allowed
-
-      // Only the user can create their own document, and the user ID in the document
-      // data must match the userId in the path.
+      // Allow anyone to create a user document if the userId matches their auth uid.
       allow create: if isSignedIn() && isOwner(userId) && request.resource.data.id == userId;
-
-      // Only the user can update their own document, and the userId cannot be changed.
+      allow get: if isSignedIn() && isOwner(userId);
+      allow list: if false; // User listing is not permitted.
       allow update: if isSignedIn() && isExistingOwner(userId) && request.resource.data.id == resource.data.id;
-
-      // Only the user can delete their own document
       allow delete: if isSignedIn() && isExistingOwner(userId);
     }
 
     /**
-     * @description Manages access to product information. All users can read product information, but only authorized users can create, update, or delete it.
+     * @description Controls access to product documents.  Read access is public, write access is restricted.
      * @path /products/{productId}
      * @allow (get, list) Any user can read product information.
-     * @deny (create, update, delete) No one can modify product information without specific authorization logic.
-     * @principle Allows public read access but requires specific authorization for write access.
+     * @deny (create) No one can create product documents without authorization.
+     * @deny (update) No one can update product documents without authorization.
+     * @deny (delete) No one can delete product documents without authorization.
+     * @principle Public read, owner-only (TODO) write access.
      */
     match /products/{productId} {
       allow get, list: if true;
-      // CRITICAL: Cannot implement owner-only writes. The 'Product' entity is missing an 'ownerId' or 'authorId' field.
-      allow create, update, delete: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
+      allow create, update, delete: if false; // TODO: Add owner validation and role-based access.
     }
 
     /**
-     * @description Manages access to inventory batch information. All users can read inventory batch information, but only authorized users can create, update, or delete it.
+     * @description Controls access to inventory batch documents.  Read access is public, write access is restricted.
      * @path /inventoryBatches/{inventoryBatchId}
      * @allow (get, list) Any user can read inventory batch information.
-     * @deny (create, update, delete) No one can modify inventory batch information without specific authorization logic.
-     * @principle Allows public read access but requires specific authorization for write access.
+     * @deny (create) No one can create inventory batch documents without authorization.
+     * @deny (update) No one can update inventory batch documents without authorization.
+     * @deny (delete) No one can delete inventory batch documents without authorization.
+     * @principle Public read, owner-only (TODO) write access.
      */
     match /inventoryBatches/{inventoryBatchId} {
       allow get, list: if true;
-      // CRITICAL: Cannot implement owner-only writes. The 'InventoryBatch' entity is missing an 'ownerId' or 'authorId' field.
-      allow create, update, delete: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
+      allow create, update, delete: if false;  // TODO: Add owner validation and role-based access.
     }
 
     /**
-     * @description Manages access to sale transactions for a specific user. Only the authenticated user can read and write their own transactions.
+     * @description Controls access to sale transaction documents within a user's profile.
      * @path /users/{userId}/saleTransactions/{saleTransactionId}
-     * @allow (create) User with ID 'user123' can create a sale transaction under their profile if authenticated as 'user123'.
-     * @allow (get, update, delete) User with ID 'user123' can read, update, and delete their sale transactions if authenticated as 'user123'.
-     * @deny (create) User with ID 'user123' cannot create a sale transaction under the profile of 'user456' while authenticated as 'user123'.
-     * @deny (get, update, delete) User with ID 'user456' cannot read, update, or delete the sale transactions of 'user123' while authenticated as 'user456'.
-     * @principle Enforces document ownership for all operations on sale transactions.
+     * @allow (create) User with ID 'user123' can create a sale transaction under their profile.
+     *    - request.auth.uid: 'user123'
+     * @deny (create) User with ID 'user123' cannot create a sale transaction under 'user456's profile.
+     *    - request.auth.uid: 'user123'
+     * @allow (get, list) User with ID 'user123' can read sale transactions under their profile.
+     *    - request.auth.uid: 'user123'
+     * @deny (get, list) User with ID 'user123' cannot read sale transactions under 'user456's profile.
+     *    - request.auth.uid: 'user123'
+     * @allow (update) User with ID 'user123' can update a sale transaction under their profile.
+     *    - request.auth.uid: 'user123'
+     * @deny (update) User with ID 'user123' cannot update a sale transaction under 'user456's profile.
+     *    - request.auth.uid: 'user123'
+     * @allow (delete) User with ID 'user123' can delete a sale transaction under their profile.
+     *    - request.auth.uid: 'user123'
+     * @deny (delete) User with ID 'user123' cannot delete a sale transaction under 'user456's profile.
+     *    - request.auth.uid: 'user123'
+     * @principle Enforces document ownership for all operations.
      */
     match /users/{userId}/saleTransactions/{saleTransactionId} {
+      allow create: if isSignedIn() && isOwner(userId);
       allow get: if isSignedIn() && isOwner(userId);
       allow list: if isSignedIn() && isOwner(userId);
-      allow create: if isSignedIn() && isOwner(userId) && request.resource.data.userId == userId;
-      allow update: if isSignedIn() && isExistingOwner(userId) && request.resource.data.userId == resource.data.userId;
+      allow update: if isSignedIn() && isExistingOwner(userId);
       allow delete: if isSignedIn() && isExistingOwner(userId);
     }
 
     /**
-     * @description Manages access to sale items. All users can read sale item information, but only authorized users can create, update, or delete it.
+     * @description Controls access to sale item documents.  Read access is public, write access is restricted.
      * @path /saleItems/{saleItemId}
      * @allow (get, list) Any user can read sale item information.
-     * @deny (create, update, delete) No one can modify sale item information without specific authorization logic.
-     * @principle Allows public read access but requires specific authorization for write access.
+     * @deny (create) No one can create sale item documents without authorization.
+     * @deny (update) No one can update sale item documents without authorization.
+     * @deny (delete) No one can delete sale item documents without authorization.
+     * @principle Public read, owner-only (TODO) write access.
      */
     match /saleItems/{saleItemId} {
       allow get, list: if true;
-      // CRITICAL: Cannot implement owner-only writes. The 'SaleItem' entity is missing an 'ownerId' or 'authorId' field.
-      allow create, update, delete: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
+      allow create, update, delete: if false;  // TODO: Add owner validation and role-based access.
     }
 
     /**
-     * @description Manages access to audit logs. All users can read audit logs, but only authorized users can create, update, or delete them.
+     * @description Controls access to audit log documents.  Read access is public, write access is restricted.
      * @path /auditLogs/{auditLogId}
-     * @allow (get, list) Any user can read audit logs.
-     * @deny (create, update, delete) No one can modify audit logs without specific authorization logic.
-     * @principle Allows public read access but requires specific authorization for write access.
+     * @allow (get, list) Any user can read audit log information.
+     * @deny (create) No one can create audit log documents without authorization.
+     * @deny (update) No one can update audit log documents without authorization.
+     * @deny (delete) No one can delete audit log documents without authorization.
+     * @principle Public read, owner-only (TODO) write access.
      */
     match /auditLogs/{auditLogId} {
       allow get, list: if true;
-      // CRITICAL: Cannot implement owner-only writes. The 'AuditLog' entity is missing an 'ownerId' or 'authorId' field.
-      allow create, update, delete: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
+      allow create, update, delete: if false;  // TODO: Add owner validation and role-based access.
     }
 
     /**
-     * @description Manages access to units of measure. All users can read units of measure, but only authorized users can create, update, or delete them.
+     * @description Controls access to unit documents.  Read access is public, write access is restricted.
      * @path /units/{unitId}
-     * @allow (get, list) Any user can read units of measure.
-     * @deny (create, update, delete) No one can modify units of measure without specific authorization logic.
-     * @principle Allows public read access but requires specific authorization for write access.
+     * @allow (get, list) Any user can read unit information.
+     * @deny (create) No one can create unit documents without authorization.
+     * @deny (update) No one can update unit documents without authorization.
+     * @deny (delete) No one can delete unit documents without authorization.
+     * @principle Public read, owner-only (TODO) write access.
      */
     match /units/{unitId} {
       allow get, list: if true;
-      // CRITICAL: Cannot implement owner-only writes. The 'Unit' entity is missing an 'ownerId' or 'authorId' field.
-      allow create, update, delete: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
+      allow create, update, delete: if false;  // TODO: Add owner validation and role-based access.
     }
 
     /**
-     * @description Manages access to product attributes. All users can read product attributes, but only authorized users can create, update, or delete them.
+     * @description Controls access to product attribute documents.  Read access is public, write access is restricted.
      * @path /productAttributes/{attributeId}
-     * @allow (get, list) Any user can read product attributes.
-     * @deny (create, update, delete) No one can modify product attributes without specific authorization logic.
-     * @principle Allows public read access but requires specific authorization for write access.
+     * @allow (get, list) Any user can read product attribute information.
+     * @deny (create) No one can create product attribute documents without authorization.
+     * @deny (update) No one can update product attribute documents without authorization.
+     * @deny (delete) No one can delete product attribute documents without authorization.
+     * @principle Public read, owner-only (TODO) write access.
      */
     match /productAttributes/{attributeId} {
       allow get, list: if true;
-      // CRITICAL: Cannot implement owner-only writes. The 'ProductAttribute' entity is missing an 'ownerId' or 'authorId' field.
-      allow create, update, delete: if false; // TODO: Add owner validation once the schema is updated with an ownership field.
+      allow create, update, delete: if false;  // TODO: Add owner validation and role-based access.
     }
-
   }
 
   // Helper function to determine if the user is signed in.
@@ -158,13 +185,13 @@ service cloud.firestore {
     return request.auth != null;
   }
 
-  // Helper function to determine if the user is the owner of the resource.
+  // Helper function to determine if the requesting user is the owner of the resource.
   function isOwner(userId) {
     return request.auth.uid == userId;
   }
 
-    // Helper function to determine if the user is the owner of the resource and it exists.
+  // Helper function to determine if the requesting user is the owner of an existing resource.
   function isExistingOwner(userId) {
-    return request.auth.uid == userId && resource != null;
+    return isOwner(userId) && resource != null;
   }
 }
