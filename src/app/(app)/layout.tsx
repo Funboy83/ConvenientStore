@@ -10,7 +10,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <UserProvider>
       <SidebarProvider>
-        <div className="bg-background">
+        <div className="grid md:grid-cols-[auto_1fr] bg-background">
           <Sidebar>
             <SidebarHeader className="p-4">
               <div className="flex items-center gap-3">
