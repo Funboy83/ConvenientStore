@@ -49,14 +49,22 @@
         },
         "attributes": {
           "type": "array",
-          "description": "list of the attributes of this product, the type of attributes must be defined to string",
+          "description": "List of key-value attributes for this product.",
           "items": {
-            "type": "string"
+            "type": "object",
+            "properties": {
+              "key": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              }
+            },
+            "required": ["key", "value"]
           }
         }
       },
       "required": [
-        "id",
         "name",
         "description",
         "barcode"
