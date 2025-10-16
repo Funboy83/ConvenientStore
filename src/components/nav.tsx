@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   Users,
   Package,
+  Database,
 } from "lucide-react";
 
 import { useUser } from "@/contexts/user-context";
@@ -75,6 +76,12 @@ const navItems: NavItem[] = [
     title: "Users",
     href: "/users",
     icon: Users,
+    role: ['Admin'],
+  },
+  {
+    title: "DB Test",
+    href: "/test-db",
+    icon: Database,
     role: ['Admin'],
   },
 ];
