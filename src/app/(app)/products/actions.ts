@@ -1,7 +1,7 @@
 
 'use server';
 
-import { addDocumentNonBlocking } from '@/firebase';
+import { addDoc } from 'firebase/firestore';
 import { initializeFirebase } from '@/firebase';
 import { collection } from 'firebase/firestore';
 
@@ -23,12 +23,10 @@ export async function addProduct(productData: ProductData) {
   const productsCollection = collection(firestore, 'products');
 
   try {
-    // We use the non-blocking version to let the UI update optimistically
-    addDocumentNonBlocking(productsCollection, productData);
+    await addDoc(productsCollection, productData);
   } catch (error) {
     console.error('Error adding product:', error);
-    // The non-blocking function will handle emitting the permission error.
-    // We can re-throw if we want the server action itself to fail.
-    throw new Error('Failed to initiate product creation.');
+    // Re-throw a more specific error to be handled by the client
+    throw new Error('Failed to create the product in the database.');
   }
 }
