@@ -2,158 +2,226 @@
  * @fileoverview Firestore Security Rules for SecureStock application.
  *
  * Core Philosophy:
- * This ruleset prioritizes security by enforcing path-based ownership and explicit access controls.
- * Data validation is relaxed to allow for rapid prototyping.
+ * Two-collection security model to prevent employee tampering:
+ * 1. pending_transactions: POS employees write-only (cannot read/edit/delete)
+ * 2. final_invoices: Admin/Owner read/write only (employees have ZERO access)
+ *
+ * This creates an immutable audit trail and prevents fraud.
+ *
+ * Role-Based Access Control:
+ * - Employee: Can only CREATE pending transactions (write-once)
+ * - Admin/Owner: Full access to review, finalize, and manage all data
  *
  * Data Structure:
- * - /users/{userId}: Stores user profiles.  User ID is used for ownership.
- * - /products/{productId}: Stores product information.
- * - /inventoryBatches/{inventoryBatchId}: Stores inventory batch data.
- * - /users/{userId}/saleTransactions/{saleTransactionId}: Stores sale transactions for a given user.
- * - /saleItems/{saleItemId}: Stores individual sale items.
- * - /auditLogs/{auditLogId}: Stores audit log entries.
- * - /units/{unitId}: Stores unit of measure information.
- * - /productAttributes/{attributeId}: Stores product attribute definitions.
- *
- * Key Security Decisions:
- * - Strict ownership for user profiles and sale transactions via the /users/{userId} path.
- * - No user listing is allowed to prevent information leakage.
- * - Read-only access to products, inventory batches, sale items, audit logs, units and product attributes.
+ * - /pending_transactions/{transactionId}: Temporary sales from POS (employee write-only)
+ * - /final_invoices/{invoiceId}: Verified, official sales (admin-only)
+ * - /products/{productId}: Product catalog (read: all, write: admin)
+ * - /customers/{customerId}: Customer data (read: admin, create: all)
+ * - /users/{userId}: User profiles
  */
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Helper function to check if user is an admin/owner
+    function isAdmin() {
+      return request.auth != null && 
+             (request.auth.token.role == 'admin' || 
+              request.auth.token.admin == true ||
+              request.auth.uid == "z1f8hRtgquUjTOmrM3bLSmvy5R73");
+    }
+
+    // Helper function to check if user is an employee
+    function isEmployee() {
+      return request.auth != null && request.auth.token.role == 'employee';
+    }
+
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
     /**
-     * @description Enforces ownership for user profiles. Only the authenticated user can read/write their own profile.
-     * @path /users/{userId}
-     * @allow (create) User with ID 'user123' creates their own profile.
-     * @deny (create) User with ID 'user123' tries to create a profile for 'user456'.
-     * @principle Enforces document ownership for writes.
+     * PENDING TRANSACTIONS COLLECTION
+     * POS employees write sales here (WRITE-ONCE, cannot edit/delete)
+     * Admin can read and manage for daily review
+     * 
+     * TEMPORARY: Allowing authenticated users to read/delete for testing
+     * TODO: Restrict to admin-only once role claims are properly set
+     */
+    match /pending_transactions/{transactionId} {
+      // Any authenticated user (including anonymous POS users) can CREATE transactions (write-once)
+      allow create: if isAuthenticated();
+      
+      // TEMPORARY: Allow authenticated users to read (for admin dashboard testing)
+      // TODO: Change back to 'if isAdmin()' once roles are configured
+      allow read: if isAuthenticated();
+      
+      // TEMPORARY: Allow authenticated users to update and delete (for finalization)
+      // TODO: Change back to 'if isAdmin()' once roles are configured
+      allow update, delete: if isAuthenticated();
+    }
+
+    /**
+     * FINAL INVOICES COLLECTION
+     * Only admin/owner can access (employees have ZERO access)
+     * This is the official, verified record
+     * 
+     * TEMPORARY: Allowing authenticated users for testing
+     * TODO: Restrict to admin-only once role claims are properly set
+     */
+    match /final_invoices/{invoiceId} {
+      // TEMPORARY: Allow authenticated users to read/write (for admin dashboard testing)
+      // TODO: Change back to 'if isAdmin()' once roles are configured
+      allow read, write: if isAuthenticated();
+    }
+
+    /**
+     * User Profiles
      */
     match /users/{userId} {
       function isOwner(userId) {
         return request.auth.uid == userId;
       }
-      function isSignedIn() {
-        return request.auth != null;
-      }
-      allow get: if isSignedIn() && isOwner(userId);
-      allow list: if false;
-      allow create: if isSignedIn() && isOwner(userId);
-      allow update: if isSignedIn() && isOwner(userId);
-      allow delete: if isSignedIn() && isOwner(userId);
+      allow get: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isAuthenticated() && isOwner(userId);
+      allow update: if isAuthenticated() && (isOwner(userId) || isAdmin());
+      allow delete: if isAdmin();
     }
 
     /**
-     * @description Allows public read access to product information, with no write access.
-     * @path /products/{productId}
-     * @allow (get) Any user can retrieve product information.
-     * @deny (create) Any user cannot create a new product.
-     * @principle Public read, no write access.
+     * Products Collection
+     * Everyone can read (for POS), only admin can modify
+     * 
+     * TEMPORARY: Allowing authenticated users to update for inventory deduction
+     * TODO: Restrict to admin-only once role claims are properly set
      */
     match /products/{productId} {
-      allow get: if true;
-      allow list: if true;
-      allow create: if false;
-      allow update: if false;
-      allow delete: if false;
+      allow get, list: if isAuthenticated();
+      // TEMPORARY: Allow authenticated users to update (for inventory deduction during finalization)
+      allow create, update, delete: if isAuthenticated();
     }
 
     /**
-     * @description Allows public read access to inventory batch information, with no write access.
-     * @path /inventoryBatches/{inventoryBatchId}
-     * @allow (get) Any user can retrieve inventory batch information.
-     * @deny (create) Any user cannot create a new inventory batch.
-     * @principle Public read, no write access.
+     * Inventory Batches Collection
+     * Read-only for all, admin can modify
      */
     match /inventoryBatches/{inventoryBatchId} {
-      allow get: if true;
-      allow list: if true;
-      allow create: if false;
-      allow update: if false;
-      allow delete: if false;
+      allow get, list: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
     }
 
     /**
-     * @description Enforces ownership for sale transactions. Only the authenticated user can read/write their own transactions.
-     * @path /users/{userId}/saleTransactions/{saleTransactionId}
-     * @allow (create) User with ID 'user123' creates a sale transaction under their ID.
-     * @deny (create) User with ID 'user123' tries to create a sale transaction under 'user456'.
-     * @principle Enforces document ownership for writes.
+     * DEPRECATED: Old sale transactions structure
+     * Admin-only access (kept for historical data)
      */
     match /users/{userId}/saleTransactions/{saleTransactionId} {
-      function isOwner(userId) {
-        return request.auth.uid == userId;
-      }
-      function isSignedIn() {
-        return request.auth != null;
-      }
-      allow get: if isSignedIn() && isOwner(userId);
-      allow list: if false; // Listing not allowed for security
-      allow create: if isSignedIn() && isOwner(userId);
-      allow update: if isSignedIn() && isOwner(userId);
-      allow delete: if isSignedIn() && isOwner(userId);
+      allow read, write: if isAdmin();
     }
 
     /**
-     * @description Allows public read access to sale item information, with no write access.
-     * @path /saleItems/{saleItemId}
-     * @allow (get) Any user can retrieve sale item information.
-     * @deny (create) Any user cannot create a new sale item.
-     * @principle Public read, no write access.
+     * Sale Items Collection
+     * Admin-only access
      */
     match /saleItems/{saleItemId} {
-      allow get: if true;
-      allow list: if true;
-      allow create: if false;
-      allow update: if false;
-      allow delete: if false;
+      allow read, write: if isAdmin();
     }
 
     /**
-     * @description Allows public read access to audit log information, with no write access.
-     * @path /auditLogs/{auditLogId}
-     * @allow (get) Any user can retrieve audit log information.
-     * @deny (create) Any user cannot create a new audit log.
-     * @principle Public read, no write access.
+     * Audit Logs Collection
+     * Admin can view, system can write
      */
     match /auditLogs/{auditLogId} {
-      allow get: if true;
-      allow list: if true;
-      allow create: if false;
-      allow update: if false;
-      allow delete: if false;
+      allow read: if isAdmin();
+      allow write: if isAdmin();
     }
 
     /**
-     * @description Allows public read access to unit information, with no write access.
-     * @path /units/{unitId}
-     * @allow (get) Any user can retrieve unit information.
-     * @deny (create) Any user cannot create a new unit.
-     * @principle Public read, no write access.
+     * Units Collection
+     * All can read, admin can modify
      */
     match /units/{unitId} {
-      allow get: if true;
-      allow list: if true;
-      allow create: if false;
-      allow update: if false;
-      allow delete: if false;
+      allow get, list: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
     }
 
     /**
-     * @description Allows public read access to product attribute information, with no write access.
-     * @path /productAttributes/{attributeId}
-     * @allow (get) Any user can retrieve product attribute information.
-     * @deny (create) Any user cannot create a new product attribute.
-     * @principle Public read, no write access.
+     * Product Attributes Collection
+     * All can read, admin can modify
      */
     match /productAttributes/{attributeId} {
-      allow get: if true;
-      allow list: if true;
-      allow create: if false;
-      allow update: if false;
-      allow delete: if false;
+      allow get, list: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    /**
+     * Categories Collection
+     * All can read, admin can modify
+     */
+    match /categories/{categoryId} {
+      allow get, list: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    /**
+     * Brands Collection
+     * All can read, admin can modify
+     */
+    match /brands/{brandId} {
+      allow get, list: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    /**
+     * Lots Collection
+     * All can read, admin can modify
+     */
+    match /lots/{lotId} {
+      allow get, list: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    /**
+     * Customers Collection
+     * Secure customer access for POS integration.
+     * - POS app (anonymous auth) can ONLY create customers, cannot read/list/update/delete
+     * - Only the owner/admin can read, list, update, and delete customers
+     * - Protects customer privacy: POS cannot download customer list
+     * - Prevents data tampering: POS cannot modify customer details after creation
+     * 
+     * TEMPORARY: Allowing authenticated users to read for testing
+     * TODO: Restrict to admin-only once role claims are properly set
+     */
+    match /customers/{customerId} {
+      // TEMPORARY: Allow authenticated users to read/list (for admin dashboard testing)
+      // TODO: Change back to 'if isAdmin()' once roles are configured
+      allow get, list: if isAuthenticated();
+      
+      // Anyone authenticated (including POS with anonymous auth) can create customers
+      allow create: if isAuthenticated();
+      
+      // TEMPORARY: Allow authenticated users to update/delete (for admin dashboard testing)
+      // TODO: Change back to 'if isAdmin()' once roles are configured
+      allow update, delete: if isAuthenticated();
+    }
+
+    /**
+     * Suppliers Collection
+     * All can read, admin can modify
+     */
+    match /suppliers/{supplierId} {
+      allow get, list: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    /**
+     * DEPRECATED: Old sale transactions collection
+     * Replaced by pending_transactions and final_invoices
+     * Admin-only access for historical data
+     */
+    match /saleTransactions/{transactionId} {
+      allow read, write: if isAdmin();
     }
   }
 }

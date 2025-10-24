@@ -25,7 +25,6 @@ import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { ImagePlus, PlusCircle, Trash2, Diamond } from 'lucide-react';
-import { addProduct } from '@/app/(app)/products/actions';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -33,8 +32,12 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { ScrollArea } from './ui/scroll-area';
 import { useCollection, useDoc, useFirestore, useMemoFirebase } from '@/firebase';
-import { collection, doc } from 'firebase/firestore';
+import { collection, doc, addDoc } from 'firebase/firestore';
 import { AddAttributeDialog } from './add-attribute-dialog';
+import { AddUnitDialog } from './add-unit-dialog';
+import { AddCategoryDialog } from './add-category-dialog';
+import { AddBrandDialog } from './add-brand-dialog';
+import { SetupUnitsAttributesDialog } from './setup-units-attributes-dialog';
 
 const addProductSchema = z.object({
   productNumber: z.string().optional(),
@@ -71,16 +74,24 @@ interface AddProductDialogProps {
 export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) {
   const { toast } = useToast();
   const firestore = useFirestore();
+  
+  // State for opening modals
   const [isAddAttributeOpen, setIsAddAttributeOpen] = useState(false);
-  const [currentAttributeType, setCurrentAttributeType] = useState<'category' | 'brand' | 'position' | null>(null);
+  const [isAddUnitOpen, setIsAddUnitOpen] = useState(false);
+  const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
+  const [isAddBrandOpen, setIsAddBrandOpen] = useState(false);
+  const [isSetupUnitsAttributesOpen, setIsSetupUnitsAttributesOpen] = useState(false);
 
-  const { data: categoryData } = useDoc(useMemoFirebase(() => firestore ? doc(firestore, 'productAttributes', 'category') : null, [firestore]));
-  const { data: brandData } = useDoc(useMemoFirebase(() => firestore ? doc(firestore, 'productAttributes', 'brand') : null, [firestore]));
+  // Fetch attributes from Firestore (for position attribute)
   const { data: positionData } = useDoc(useMemoFirebase(() => firestore ? doc(firestore, 'productAttributes', 'position') : null, [firestore]));
+  
+  // Fetch categories and brands from their own collections
+  const { data: categories } = useCollection(useMemoFirebase(() => firestore ? collection(firestore, 'categories') : null, [firestore]));
+  const { data: brands } = useCollection(useMemoFirebase(() => firestore ? collection(firestore, 'brands') : null, [firestore]));
+  
+  // Fetch units from Firestore
   const { data: weightUnits } = useCollection(useMemoFirebase(() => firestore ? collection(firestore, 'units') : null, [firestore]));
 
-  const categories = categoryData?.values || [];
-  const brands = brandData?.values || [];
   const positions = positionData?.values || [];
 
 
@@ -108,25 +119,69 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
     name: 'attributes',
   });
 
-  const handleCreateAttribute = (type: 'category' | 'brand' | 'position') => {
-    setCurrentAttributeType(type);
-    setIsAddAttributeOpen(true);
-  };
-
   async function onSubmit(values: AddProductFormValues) {
+    if (!firestore) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Firebase not initialized.',
+      });
+      return;
+    }
+
     try {
-      await addProduct(values as any); // The schema is slightly different but compatible
+      // Clean up the data - remove undefined/null values and empty arrays
+      const cleanData: any = {
+        name: values.name,
+        forSale: values.forSale ?? true,
+        manageByLot: values.manageByLot || 'no',
+      };
+
+      // Only add optional fields if they have values
+      if (values.productNumber) cleanData.productNumber = values.productNumber;
+      if (values.barcode) cleanData.barcode = values.barcode;
+      if (values.description) cleanData.description = values.description;
+      if (values.category) cleanData.category = values.category;
+      if (values.brand) cleanData.brand = values.brand;
+      if (values.position) cleanData.position = values.position;
+      
+      // Add numeric fields (use 0 as default if not provided)
+      cleanData.costPrice = values.costPrice || 0;
+      cleanData.sellingPrice = values.sellingPrice || 0;
+      cleanData.onHand = values.onHand || 0;
+      cleanData.minInventory = values.minInventory || 0;
+      cleanData.maxInventory = values.maxInventory || 0;
+      cleanData.weight = values.weight || 0;
+      cleanData.weightUnit = values.weightUnit || 'g';
+
+      // Only add attributes if there are valid ones
+      if (values.attributes && values.attributes.length > 0) {
+        const validAttributes = values.attributes.filter(
+          attr => attr.key && attr.value
+        );
+        if (validAttributes.length > 0) {
+          cleanData.attributes = validAttributes;
+        }
+      }
+
+      // Add timestamp
+      cleanData.createdAt = new Date().toISOString();
+
+      const productsCollection = collection(firestore, 'products');
+      await addDoc(productsCollection, cleanData);
+      
       toast({
         title: 'Product Added',
         description: `Product "${values.name}" has been successfully created.`,
       });
       form.reset();
       onOpenChange(false);
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Error adding product:', error);
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to add product. Please try again.',
+        description: error.message || 'Failed to add product. Please try again.',
       });
     }
   }
@@ -205,10 +260,21 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                                               </SelectTrigger>
                                             </FormControl>
                                             <SelectContent>
-                                              {categories?.map((c: any) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                                              {categories && categories.length > 0 ? (
+                                                categories.map((c: any) => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)
+                                              ) : (
+                                                <div className="p-2 text-sm text-muted-foreground">No categories. Add in Settings.</div>
+                                              )}
                                             </SelectContent>
                                           </Select>
-                                          <Button type="button" variant="link" className="p-0 h-auto" onClick={() => handleCreateAttribute('category')}>Create</Button>
+                                          <Button 
+                                            type="button" 
+                                            variant="link" 
+                                            className="p-0 h-auto" 
+                                            onClick={() => setIsAddCategoryOpen(true)}
+                                          >
+                                            Add
+                                          </Button>
                                           </div>
                                         </FormItem>
                                       )}
@@ -227,10 +293,21 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                                                 </SelectTrigger>
                                               </FormControl>
                                               <SelectContent>
-                                                {brands?.map((b: any) => <SelectItem key={b} value={b}>{b}</SelectItem>)}
+                                                {brands && brands.length > 0 ? (
+                                                  brands.map((b: any) => <SelectItem key={b.id} value={b.name}>{b.name}</SelectItem>)
+                                                ) : (
+                                                  <div className="p-2 text-sm text-muted-foreground">No brands. Add in Settings.</div>
+                                                )}
                                               </SelectContent>
                                             </Select>
-                                            <Button type="button" variant="link" className="p-0 h-auto" onClick={() => handleCreateAttribute('brand')}>Create</Button>
+                                            <Button 
+                                              type="button" 
+                                              variant="link" 
+                                              className="p-0 h-auto" 
+                                              onClick={() => setIsAddBrandOpen(true)}
+                                            >
+                                              Add
+                                            </Button>
                                           </div>
                                         </FormItem>
                                       )}
@@ -345,10 +422,21 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                                           </SelectTrigger>
                                         </FormControl>
                                         <SelectContent>
-                                          {positions?.map((p: any) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                                          {positions.length > 0 ? (
+                                            positions.map((p: any) => <SelectItem key={p} value={p}>{p}</SelectItem>)
+                                          ) : (
+                                            <div className="p-2 text-sm text-muted-foreground">No positions. Add in Settings.</div>
+                                          )}
                                         </SelectContent>
                                       </Select>
-                                      <Button type="button" variant="link" className="p-0 h-auto" onClick={() => handleCreateAttribute('position')}>Create</Button>
+                                      <Button 
+                                        type="button" 
+                                        variant="link" 
+                                        className="p-0 h-auto" 
+                                        onClick={() => setIsAddAttributeOpen(true)}
+                                      >
+                                        Add
+                                      </Button>
                                       </div>
                                     </FormItem>
                                   )}
@@ -358,10 +446,20 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                                     name="weight"
                                     render={({ field }) => (
                                         <FormItem>
-                                        <FormLabel>Weight</FormLabel>
+                                        <div className="flex items-center justify-between mb-2">
+                                          <FormLabel>Weight</FormLabel>
+                                          <Button 
+                                            type="button" 
+                                            variant="link" 
+                                            className="p-0 h-auto text-xs" 
+                                            onClick={() => setIsAddUnitOpen(true)}
+                                          >
+                                            Add Unit
+                                          </Button>
+                                        </div>
                                         <div className="relative">
                                             <FormControl>
-                                                <Input type="number" className="pr-16" {...field} />
+                                                <Input type="number" className="pr-20" {...field} />
                                             </FormControl>
                                             <FormField
                                                 control={form.control}
@@ -369,12 +467,16 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                                                 render={({ field: selectField }) => (
                                                 <Select onValueChange={selectField.onChange} defaultValue={selectField.value}>
                                                     <FormControl>
-                                                        <SelectTrigger className="absolute right-1 top-1/2 -translate-y-1/2 w-14 h-8 border-none bg-transparent">
+                                                        <SelectTrigger className="absolute right-1 top-1/2 -translate-y-1/2 w-16 h-8 border-none bg-transparent">
                                                             <SelectValue />
                                                         </SelectTrigger>
                                                     </FormControl>
                                                     <SelectContent>
-                                                        {weightUnits?.map((u: any) => <SelectItem key={u.id} value={u.abbreviation}>{u.abbreviation}</SelectItem>)}
+                                                        {weightUnits && weightUnits.length > 0 ? (
+                                                          weightUnits.map((u: any) => <SelectItem key={u.id} value={u.abbreviation}>{u.abbreviation}</SelectItem>)
+                                                        ) : (
+                                                          <div className="p-2 text-sm text-muted-foreground">No units. Add in Settings.</div>
+                                                        )}
                                                     </SelectContent>
                                                 </Select>
                                                 )}
@@ -392,57 +494,36 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                                 <CardDescription>Create multiple products with different units (bottle, pack, box) or attributes (flavor, volume, color). Each product has a unique product number.</CardDescription>
                             </CardHeader>
                             <CardContent>
-                                <div>
-                                  <div className="space-y-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="w-full"
+                                    onClick={() => setIsSetupUnitsAttributesOpen(true)}
+                                >
+                                    Set up
+                                </Button>
+                                
+                                {/* Display selected attributes */}
+                                {fields.length > 0 && (
+                                  <div className="mt-4 space-y-2">
                                     {fields.map((field, index) => (
-                                      <div key={field.id} className="flex items-center gap-2">
-                                        <FormField
-                                          control={form.control}
-                                          name={`attributes.${index}.key`}
-                                          render={({ field }) => (
-                                            <FormItem className="flex-1">
-                                              <FormControl>
-                                                <Input placeholder="Attribute" {...field} />
-                                              </FormControl>
-                                              <FormMessage />
-                                            </FormItem>
-                                          )}
-                                        />
-                                        <FormField
-                                          control={form.control}
-                                          name={`attributes.${index}.value`}
-                                          render={({ field }) => (
-                                            <FormItem className="flex-1">
-                                                <FormControl>
-                                                <Input placeholder="Value" {...field} />
-                                              </FormControl>
-                                              <FormMessage />
-                                            </FormItem>
-                                          )}
-                                        />
+                                      <div key={field.id} className="flex items-center gap-2 p-2 bg-muted rounded text-sm">
+                                        <span className="flex-1">
+                                          <strong>{form.watch(`attributes.${index}.key`)}:</strong> {form.watch(`attributes.${index}.value`)}
+                                        </span>
                                         <Button
                                           type="button"
                                           variant="ghost"
                                           size="icon"
                                           onClick={() => remove(index)}
-                                          className="shrink-0"
+                                          className="h-6 w-6"
                                         >
-                                          <Trash2 className="h-4 w-4" />
+                                          <Trash2 className="h-3 w-3" />
                                         </Button>
                                       </div>
                                     ))}
                                   </div>
-                                  <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="sm"
-                                      className="mt-2"
-                                      onClick={() => append({ key: '', value: '' })}
-                                  >
-                                      <PlusCircle className="mr-2 h-4 w-4" />
-                                      Add Attribute
-                                  </Button>
-                                </div>
+                                )}
                             </CardContent>
                         </Card>
 
@@ -501,10 +582,35 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
         </Form>
       </DialogContent>
     </Dialog>
-    <AddAttributeDialog
-      open={isAddAttributeOpen}
+    <AddAttributeDialog 
+      open={isAddAttributeOpen} 
       onOpenChange={setIsAddAttributeOpen}
-      attributeType={currentAttributeType}
+    />
+    <AddUnitDialog 
+      open={isAddUnitOpen} 
+      onOpenChange={setIsAddUnitOpen}
+    />
+    <AddCategoryDialog 
+      open={isAddCategoryOpen} 
+      onOpenChange={setIsAddCategoryOpen}
+    />
+    <AddBrandDialog 
+      open={isAddBrandOpen} 
+      onOpenChange={setIsAddBrandOpen}
+    />
+    <SetupUnitsAttributesDialog
+      open={isSetupUnitsAttributesOpen}
+      onOpenChange={setIsSetupUnitsAttributesOpen}
+      onSave={(data) => {
+        // Clear existing attributes
+        while (fields.length > 0) {
+          remove(0);
+        }
+        // Add new attributes
+        data.forEach((pair: any) => {
+          append({ key: pair.attribute, value: pair.value });
+        });
+      }}
     />
     </>
   );

@@ -17,9 +17,25 @@ import {
   DropdownMenuSubContent
 } from "@/components/ui/dropdown-menu";
 import { useUser } from "@/contexts/user-context";
+import { useFirebase } from "@/firebase/provider";
+import { signOut } from "firebase/auth";
+import { useRouter } from "next/navigation";
 
 export function UserNav() {
   const { currentUser, users, setCurrentUser } = useUser();
+  const { auth } = useFirebase();
+  const router = useRouter();
+
+  const handleLogout = async () => {
+    if (auth) {
+      try {
+        await signOut(auth);
+        router.push('/login');
+      } catch (error) {
+        console.error('Logout error:', error);
+      }
+    }
+  };
 
   if (!currentUser) return null;
 
@@ -63,7 +79,7 @@ export function UserNav() {
             </DropdownMenuSub>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem>
+        <DropdownMenuItem onClick={handleLogout}>
           <LogOut className="mr-2 h-4 w-4" />
           <span>Log out</span>
         </DropdownMenuItem>

@@ -25,11 +25,10 @@ import { useToast } from '@/hooks/use-toast';
 import { useForm, useFieldArray } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { addAttribute, addAttributeValue } from '@/app/(app)/settings/actions';
 import { PlusCircle, Trash2 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { useCollection, useFirestore, useMemoFirebase } from '@/firebase';
-import { collection } from 'firebase/firestore';
+import { collection, setDoc, doc, updateDoc, arrayUnion } from 'firebase/firestore';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 
 const addAttributeSchema = z.object({
@@ -81,41 +80,70 @@ export function AddAttributeDialog({ open, onOpenChange, attributeType }: AddAtt
   });
 
   async function onCreateSubmit(values: AddAttributeFormValues) {
+    if (!firestore) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Firebase not initialized.',
+      });
+      return;
+    }
+
     try {
-      const attributeData = {
-        name: values.name,
-        values: values.values.map(v => v.value),
-      };
-      await addAttribute(attributeData);
+      const docId = values.name.toLowerCase();
+      const attributeRef = doc(firestore, 'productAttributes', docId);
+      
+      await setDoc(attributeRef, { 
+        name: values.name, 
+        values: values.values.map(v => v.value) 
+      });
+      
       toast({
         title: 'Attribute Created',
         description: `Attribute "${values.name}" has been created.`,
       });
       createForm.reset();
       onOpenChange(false);
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Error creating attribute:', error);
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to create attribute.',
+        description: error.message || 'Failed to create attribute.',
       });
     }
   }
 
   async function onAddValueSubmit(values: AddValueFormValues) {
+    if (!firestore) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Firebase not initialized.',
+      });
+      return;
+    }
+
     try {
-      await addAttributeValue(values.attributeName, values.newValue);
+      const docId = values.attributeName.toLowerCase();
+      const attributeRef = doc(firestore, 'productAttributes', docId);
+      
+      await updateDoc(attributeRef, {
+        values: arrayUnion(values.newValue)
+      });
+      
       toast({
         title: 'Value Added',
         description: `Added "${values.newValue}" to ${values.attributeName}.`,
       });
       addValueForm.reset({attributeName: attributeType || '', newValue: '' });
       onOpenChange(false);
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Error adding value:', error);
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to add value.',
+        description: error.message || 'Failed to add value.',
       });
     }
   }

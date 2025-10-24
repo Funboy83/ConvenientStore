@@ -2,6 +2,7 @@
 'use client';
 
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 import { MoreHorizontal, PlusCircle } from 'lucide-react';
 import { add, format } from 'date-fns';
 
@@ -32,10 +33,10 @@ import {
 import { PageHeader } from '@/components/page-header';
 import { inventory as allInventory } from '@/lib/data';
 import { cn } from '@/lib/utils';
-import { AddStockDialog } from '@/components/add-stock-dialog';
-import { useState } from 'react';
 
 export default function InventoryPage() {
+  const router = useRouter();
+  
   // Sort batches by received date to find the oldest one (FIFO)
   const inventoryWithSortedBatches = allInventory.map((item) => ({
     ...item,
@@ -44,15 +45,13 @@ export default function InventoryPage() {
     ),
   }));
 
-  const [isAddStockOpen, setIsAddStockOpen] = useState(false);
-
   return (
     <>
       <PageHeader
         title="Inventory Management"
         description="Track and manage your product stock using FIFO."
       >
-        <Button onClick={() => setIsAddStockOpen(true)}>
+        <Button onClick={() => router.push('/purchase')}>
           <PlusCircle className="mr-2 h-4 w-4" />
           Add New Stock
         </Button>
@@ -185,7 +184,6 @@ export default function InventoryPage() {
           </Table>
         </CardContent>
       </Card>
-      <AddStockDialog open={isAddStockOpen} onOpenChange={setIsAddStockOpen} />
     </>
   );
 }

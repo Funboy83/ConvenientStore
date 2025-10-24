@@ -24,7 +24,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { addUnit } from '@/app/(app)/settings/actions';
+import { useFirestore } from '@/firebase';
+import { addDoc, collection } from 'firebase/firestore';
 
 const addUnitSchema = z.object({
   name: z.string().min(1, 'Unit name is required.'),
@@ -40,6 +41,7 @@ interface AddUnitDialogProps {
 
 export function AddUnitDialog({ open, onOpenChange }: AddUnitDialogProps) {
   const { toast } = useToast();
+  const firestore = useFirestore();
   const form = useForm<AddUnitFormValues>({
     resolver: zodResolver(addUnitSchema),
     defaultValues: {
@@ -49,19 +51,31 @@ export function AddUnitDialog({ open, onOpenChange }: AddUnitDialogProps) {
   });
 
   async function onSubmit(values: AddUnitFormValues) {
+    if (!firestore) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: 'Firebase not initialized.',
+      });
+      return;
+    }
+
     try {
-      await addUnit(values);
+      const unitsCollection = collection(firestore, 'units');
+      await addDoc(unitsCollection, values);
+      
       toast({
         title: 'Unit Added',
         description: `Unit "${values.name}" has been successfully created.`,
       });
       form.reset();
       onOpenChange(false);
-    } catch (error) {
+    } catch (error: any) {
+      console.error('Error adding unit:', error);
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to add unit. Please try again.',
+        description: error.message || 'Failed to add unit. Please try again.',
       });
     }
   }

@@ -14,6 +14,9 @@ import {
   Users,
   Package,
   Database,
+  Clock,
+  CheckCircle2,
+  UserCog,
 } from "lucide-react";
 
 import { useUser } from "@/contexts/user-context";
@@ -44,9 +47,39 @@ const navItems: NavItem[] = [
     role: ['Admin', 'Manager'],
   },
   {
+    title: "Purchase",
+    href: "/purchase",
+    icon: ShoppingCart,
+    role: ['Admin', 'Manager'],
+  },
+  {
     title: "Products",
     href: "/products",
     icon: Package,
+    role: ['Admin', 'Manager'],
+  },
+  {
+    title: "Customers",
+    href: "/customers",
+    icon: Users,
+    role: ['Admin', 'Manager'],
+  },
+  {
+    title: "Suppliers",
+    href: "/suppliers",
+    icon: Users,
+    role: ['Admin', 'Manager'],
+  },
+  {
+    title: "Pending Transactions",
+    href: "/pending-transactions",
+    icon: Clock,
+    role: ['Admin', 'Manager'],
+  },
+  {
+    title: "Final Invoices",
+    href: "/final-invoices",
+    icon: CheckCircle2,
     role: ['Admin', 'Manager'],
   },
   {
@@ -80,6 +113,12 @@ const navItems: NavItem[] = [
     role: ['Admin'],
   },
   {
+    title: "Role Management",
+    href: "/roles",
+    icon: UserCog,
+    role: ['Admin'],
+  },
+  {
     title: "DB Test",
     href: "/test-db",
     icon: Database,
@@ -105,7 +144,6 @@ export function Nav() {
         <SidebarMenuItem key={item.href}>
             <SidebarMenuButton
               asChild
-              href={item.href}
               isActive={pathname.startsWith(item.href)}
               tooltip={item.title}
             >

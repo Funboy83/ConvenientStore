@@ -1,9 +1,17 @@
 
 'use server';
 
-import { addDoc, setDoc } from 'firebase/firestore';
-import { initializeFirebase } from '@/firebase';
-import { collection, doc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { initializeApp, getApps } from 'firebase/app';
+import { getFirestore, addDoc, setDoc, collection, doc, updateDoc, arrayUnion } from 'firebase/firestore';
+import { firebaseConfig } from '@/firebase/config';
+
+// Server-side Firebase initialization
+function getServerFirestore() {
+  if (!getApps().length) {
+    initializeApp(firebaseConfig);
+  }
+  return getFirestore();
+}
 
 type UnitData = {
   name: string;
@@ -11,7 +19,7 @@ type UnitData = {
 };
 
 export async function addUnit(unitData: UnitData) {
-  const { firestore } = initializeFirebase();
+  const firestore = getServerFirestore();
   const unitsCollection = collection(firestore, 'units');
   try {
     // Using standard awaited addDoc for clearer error handling
@@ -28,7 +36,7 @@ type AttributeData = {
 };
 
 export async function addAttribute(attributeData: AttributeData) {
-  const { firestore } = initializeFirebase();
+  const firestore = getServerFirestore();
   // Document ID will be the attribute name in lowercase
   const docId = attributeData.name.toLowerCase();
   const attributeRef = doc(firestore, 'productAttributes', docId);
@@ -43,7 +51,7 @@ export async function addAttribute(attributeData: AttributeData) {
 }
 
 export async function addAttributeValue(attributeName: string, newValue: string) {
-    const { firestore } = initializeFirebase();
+    const firestore = getServerFirestore();
     const docId = attributeName.toLowerCase();
     const attributeRef = doc(firestore, 'productAttributes', docId);
 
