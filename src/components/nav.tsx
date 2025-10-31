@@ -17,6 +17,7 @@ import {
   Clock,
   CheckCircle2,
   UserCog,
+  Wrench,
 } from "lucide-react";
 
 import { useUser } from "@/contexts/user-context";
@@ -56,6 +57,12 @@ const navItems: NavItem[] = [
     title: "Products",
     href: "/products",
     icon: Package,
+    role: ['Admin', 'Manager'],
+  },
+  {
+    title: "Services",
+    href: "/services",
+    icon: Wrench,
     role: ['Admin', 'Manager'],
   },
   {

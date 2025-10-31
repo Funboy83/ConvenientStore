@@ -18,6 +18,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useRouter } from 'next/navigation';
 
 export default function ProductsPage() {
@@ -26,6 +36,9 @@ export default function ProductsPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isEditImageOpen, setIsEditImageOpen] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<any>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const firestore = useFirestore();
   const router = useRouter();
 
@@ -65,6 +78,39 @@ export default function ProductsPage() {
     } catch (error) {
       console.error('Error updating product image:', error);
       alert('Failed to update product image. Please try again.');
+    }
+  };
+
+  const handleDeleteClick = (product: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setProductToDelete(product);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    if (!productToDelete || !firestore) {
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      const { doc, deleteDoc } = await import('firebase/firestore');
+      const productRef = doc(firestore, 'products', productToDelete.id);
+      
+      await deleteDoc(productRef);
+
+      // Close the expanded row if it was the deleted product
+      if (expandedProductId === productToDelete.id) {
+        setExpandedProductId(null);
+      }
+
+      setIsDeleteDialogOpen(false);
+      setProductToDelete(null);
+    } catch (error) {
+      console.error('Error deleting product:', error);
+      alert('Failed to delete product. Please try again.');
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -316,7 +362,11 @@ export default function ProductsPage() {
                         {/* Bottom Actions */}
                         <div className="flex items-center justify-between mt-6 pt-6 border-t">
                           <div className="flex gap-2">
-                            <Button variant="outline" size="sm">
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={(e) => handleDeleteClick(product, e)}
+                            >
                               <span className="mr-2">🗑️</span> Delete
                             </Button>
                             <Button variant="outline" size="sm">
@@ -403,6 +453,30 @@ export default function ProductsPage() {
         currentImageUrl={selectedProduct?.imageUrl || selectedProduct?.image}
         onSave={handleSaveProductImage}
       />
+
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Product</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete <strong>{productToDelete?.name}</strong>?
+              <br />
+              <br />
+              This action cannot be undone. The product will be permanently removed from your inventory.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteConfirm}
+              disabled={isDeleting}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              {isDeleting ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }

@@ -216,6 +216,26 @@ service cloud.firestore {
     }
 
     /**
+     * Services Collection
+     * Non-inventory items (services, wireless prepaid, etc.)
+     * POS can read for selling, admin can modify
+     */
+    match /services/{serviceId} {
+      allow get, list: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    /**
+     * Service Types Collection
+     * Types for categorizing services
+     * All can read, admin can modify
+     */
+    match /serviceTypes/{typeId} {
+      allow get, list: if isAuthenticated();
+      allow create, update, delete: if isAdmin();
+    }
+
+    /**
      * DEPRECATED: Old sale transactions collection
      * Replaced by pending_transactions and final_invoices
      * Admin-only access for historical data
