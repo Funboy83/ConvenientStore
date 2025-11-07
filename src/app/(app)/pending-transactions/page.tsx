@@ -146,22 +146,120 @@ export default function PendingTransactionsPage() {
     try {
       // Step 1: Deduct inventory for each item
       console.log('📦 Deducting inventory for', transaction.items.length, 'items')
+      
+      const lotsUsed: Array<{productName: string, lotName: string, quantity: number}> = [];
+      
       for (const item of transaction.items) {
         const productRef = doc(firestore, 'products', item.productId)
         
-        // Get current product to check stock
+        // Get current product to check stock and lot management
         const productSnap = await getDoc(productRef)
-        if (productSnap.exists()) {
-          const currentStock = productSnap.data().onHand || 0
-          console.log(`  - ${item.productName}: ${currentStock} -> ${currentStock - item.quantity}`)
+        if (!productSnap.exists()) {
+          console.warn(`  ⚠️ Product ${item.productId} not found`)
+          continue;
+        }
+
+        const productData = productSnap.data();
+        const currentStock = productData.onHand || 0;
+        console.log(`  - ${item.productName}: ${currentStock} -> ${currentStock - item.quantity}`)
+        
+        // Check if product is managed by lots
+        if (productData.manageByLot === 'yes') {
+          console.log(`    🏷️ Product managed by lots - using FEFO (First Expiry, First Out)`)
           
-          // Update inventory (deduct quantity)
+          // Get the productNumber for lot matching (use various fields)
+          const productNumber = productData.productNumber || item.productNumber || item.productId.slice(0, 8);
+          
+          // Query lots for this product
+          const lotsQuery = query(
+            collection(firestore, 'lots'),
+            where('productNumber', '==', productNumber)
+          );
+          const lotsSnapshot = await getDocs(lotsQuery);
+          
+          if (lotsSnapshot.empty) {
+            console.warn(`    ⚠️ No lots found for product ${item.productName} (productNumber: ${productNumber})`)
+            // Fall back to regular inventory deduction
+            await updateDoc(productRef, {
+              onHand: increment(-item.quantity),
+              updatedAt: new Date().toISOString()
+            })
+            continue;
+          }
+          
+          // Get all lots and sort by expiry date (FEFO - First Expiry, First Out)
+          const lots = lotsSnapshot.docs
+            .map(doc => ({ id: doc.id, ...doc.data() } as any))
+            .filter((lot: any) => (lot.quantity || 0) > 0) // Only lots with available quantity
+            .sort((a: any, b: any) => {
+              // Convert expiry dates to comparable format
+              const dateA = a.expiryDate?.toDate ? a.expiryDate.toDate() : new Date(a.expiryDate);
+              const dateB = b.expiryDate?.toDate ? b.expiryDate.toDate() : new Date(b.expiryDate);
+              return dateA.getTime() - dateB.getTime(); // Earliest first
+            });
+          
+          if (lots.length === 0) {
+            console.warn(`    ⚠️ No available lots with quantity for product ${item.productName}`)
+            // Fall back to regular inventory deduction
+            await updateDoc(productRef, {
+              onHand: increment(-item.quantity),
+              updatedAt: new Date().toISOString()
+            })
+            continue;
+          }
+          
+          console.log(`    📋 Found ${lots.length} available lots, sorted by expiry date:`)
+          lots.forEach((lot: any, idx: number) => {
+            const expiryDate = lot.expiryDate?.toDate ? lot.expiryDate.toDate() : new Date(lot.expiryDate);
+            console.log(`      ${idx + 1}. ${lot.lotName} - Expires: ${expiryDate.toLocaleDateString()} - Qty: ${lot.quantity}`)
+          });
+          
+          // Deduct from lots using FEFO
+          let remainingToDeduct = item.quantity;
+          
+          for (const lot of lots) {
+            if (remainingToDeduct <= 0) break;
+            
+            const lotRef = doc(firestore, 'lots', lot.id);
+            const availableInLot = lot.quantity || 0;
+            const deductFromThisLot = Math.min(remainingToDeduct, availableInLot);
+            
+            // Update lot quantity
+            await updateDoc(lotRef, {
+              quantity: increment(-deductFromThisLot),
+              updatedAt: new Date().toISOString()
+            });
+            
+            const expiryDate = lot.expiryDate?.toDate ? lot.expiryDate.toDate() : new Date(lot.expiryDate);
+            console.log(`      ✅ Deducted ${deductFromThisLot} from lot ${lot.lotName} (Expiry: ${expiryDate.toLocaleDateString()})`)
+            
+            // Track which lots were used
+            lotsUsed.push({
+              productName: item.productName,
+              lotName: lot.lotName,
+              quantity: deductFromThisLot
+            });
+            
+            remainingToDeduct -= deductFromThisLot;
+          }
+          
+          if (remainingToDeduct > 0) {
+            console.warn(`    ⚠️ Warning: ${remainingToDeduct} units could not be deducted from lots (insufficient lot inventory)`)
+          }
+          
+          // Update product's total onHand
           await updateDoc(productRef, {
             onHand: increment(-item.quantity),
             updatedAt: new Date().toISOString()
           })
+          
         } else {
-          console.warn(`  ⚠️ Product ${item.productId} not found`)
+          // Regular product (not managed by lots) - simple inventory deduction
+          console.log(`    📦 Regular product - direct inventory deduction`)
+          await updateDoc(productRef, {
+            onHand: increment(-item.quantity),
+            updatedAt: new Date().toISOString()
+          })
         }
       }
 
