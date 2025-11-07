@@ -1,13 +1,15 @@
 
 'use client';
 
+import { useState } from 'react';
 import Image from 'next/image';
 import { useRouter } from 'next/navigation';
-import { MoreHorizontal, PlusCircle } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, DollarSign } from 'lucide-react';
 import { add, format } from 'date-fns';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { PriceBookDialog } from '@/components/price-book-dialog';
 import {
   Card,
   CardContent,
@@ -36,6 +38,7 @@ import { cn } from '@/lib/utils';
 
 export default function InventoryPage() {
   const router = useRouter();
+  const [isPriceBookOpen, setIsPriceBookOpen] = useState(false);
   
   // Sort batches by received date to find the oldest one (FIFO)
   const inventoryWithSortedBatches = allInventory.map((item) => ({
@@ -51,11 +54,19 @@ export default function InventoryPage() {
         title="Inventory Management"
         description="Track and manage your product stock using FIFO."
       >
-        <Button onClick={() => router.push('/purchase')}>
-          <PlusCircle className="mr-2 h-4 w-4" />
-          Add New Stock
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setIsPriceBookOpen(true)}>
+            <DollarSign className="mr-2 h-4 w-4" />
+            Price Book
+          </Button>
+          <Button onClick={() => router.push('/purchase')}>
+            <PlusCircle className="mr-2 h-4 w-4" />
+            Add New Stock
+          </Button>
+        </div>
       </PageHeader>
+
+      <PriceBookDialog open={isPriceBookOpen} onOpenChange={setIsPriceBookOpen} />
       <Card>
         <CardHeader>
           <CardTitle>Inventory Items</CardTitle>

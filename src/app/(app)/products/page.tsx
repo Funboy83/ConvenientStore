@@ -2,14 +2,16 @@
 'use client';
 
 import { useState } from 'react';
-import { PlusCircle, MoreHorizontal, Search, ImagePlus } from 'lucide-react';
+import { PlusCircle, MoreHorizontal, Search, ImagePlus, DollarSign, Filter, Eye, EyeOff } from 'lucide-react';
 import { PageHeader } from '@/components/page-header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { AddProductDialog } from '@/components/add-product-dialog';
 import { EditProductImageDialog } from '@/components/edit-product-image-dialog';
+import { PriceBookDialog } from '@/components/price-book-dialog';
+import { AddUnitToProductDialog } from '@/components/add-unit-to-product-dialog';
 import { useCollection, useFirestore, useMemoFirebase } from '@/firebase';
-import { collection } from 'firebase/firestore';
+import { collection, query, where } from 'firebase/firestore';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import {
@@ -30,8 +32,96 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useRouter } from 'next/navigation';
 
+// Component to display lots for a product
+function ProductLots({ product }: { product: any }) {
+  const firestore = useFirestore();
+  
+  // Try to find lots by matching either productNumber or the displayed product number (from table)
+  // The displayed productNumber is either product.productNumber or product.id.slice(0, 8)
+  const displayedProductNumber = product?.productNumber || product?.id?.slice(0, 8);
+  
+  // Fetch ALL lots and filter client-side since we need to match by full product.id or partial match
+  const lotsQuery = useMemoFirebase(() => {
+    if (!firestore) return null;
+    return collection(firestore, 'lots');
+  }, [firestore]);
+
+  const { data: allLots, isLoading } = useCollection(lotsQuery);
+
+  if (isLoading) {
+    return <div className="text-sm text-muted-foreground">Loading lots...</div>;
+  }
+
+  // Filter lots that match this product's ID (either exact match or starts with)
+  const lots = allLots?.filter((lot: any) => {
+    // Try exact match first
+    if (lot.productNumber === product?.productNumber) return true;
+    // Try matching with full product ID
+    if (lot.productNumber === product?.id) return true;
+    // Try matching if lot's productNumber starts with displayed number
+    if (lot.productNumber?.startsWith(displayedProductNumber)) return true;
+    // Try matching if displayed number is part of lot's productNumber
+    if (displayedProductNumber && lot.productNumber?.includes(displayedProductNumber)) return true;
+    return false;
+  });
+
+  if (!lots || lots.length === 0) {
+    return <div className="text-sm text-muted-foreground">No lots found for this product.</div>;
+  }
+
+  // Check for expired lots
+  const now = new Date();
+  
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-5 gap-4 text-sm font-medium text-muted-foreground pb-2 border-b">
+        <div>Lot Number</div>
+        <div>Expiry Date</div>
+        <div className="text-right">Quantity</div>
+        <div>Status</div>
+        <div>Received Date</div>
+      </div>
+      {lots.map((lot: any) => {
+        const expiryDate = lot.expiryDate?.toDate ? lot.expiryDate.toDate() : new Date(lot.expiryDate);
+        const isExpired = expiryDate < now;
+        const daysUntilExpiry = Math.floor((expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        const isNearExpiry = daysUntilExpiry <= 30 && daysUntilExpiry > 0;
+
+        return (
+          <div key={lot.id} className="grid grid-cols-5 gap-4 text-sm py-2 border-b last:border-0">
+            <div className="font-medium">{lot.lotName || lot.lotNumber || 'N/A'}</div>
+            <div className={isExpired ? 'text-red-600 font-medium' : isNearExpiry ? 'text-orange-600' : ''}>
+              {expiryDate.toLocaleDateString()}
+            </div>
+            <div className="text-right font-semibold">{lot.quantity || 0}</div>
+            <div>
+              {isExpired ? (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                  Expired
+                </span>
+              ) : isNearExpiry ? (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                  Expiring Soon ({daysUntilExpiry}d)
+                </span>
+              ) : (
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                  Active
+                </span>
+              )}
+            </div>
+            <div className="text-muted-foreground">
+              {lot.receivedDate?.toDate ? lot.receivedDate.toDate().toLocaleDateString() : 'N/A'}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function ProductsPage() {
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
+  const [isPriceBookOpen, setIsPriceBookOpen] = useState(false);
   const [expandedProductId, setExpandedProductId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isEditImageOpen, setIsEditImageOpen] = useState(false);
@@ -39,6 +129,11 @@ export default function ProductsPage() {
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [productToDelete, setProductToDelete] = useState<any>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [productToEdit, setProductToEdit] = useState<any>(null);
+  const [isAddUnitOpen, setIsAddUnitOpen] = useState(false);
+  const [productForUnit, setProductForUnit] = useState<any>(null);
+  const [showInactive, setShowInactive] = useState(false);
   const firestore = useFirestore();
   const router = useRouter();
 
@@ -87,6 +182,44 @@ export default function ProductsPage() {
     setIsDeleteDialogOpen(true);
   };
 
+  const handleEditClick = (product: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setProductToEdit(product);
+    setIsEditMode(true);
+    setIsAddProductOpen(true);
+  };
+
+  const handleAddUnitClick = (product: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setProductForUnit(product);
+    setIsAddUnitOpen(true);
+  };
+
+  const handleToggleActive = async (product: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    
+    if (!firestore) {
+      return;
+    }
+
+    try {
+      const { doc, updateDoc } = await import('firebase/firestore');
+      const productRef = doc(firestore, 'products', product.id);
+      
+      const newStatus = product.isActive === false ? true : false;
+      
+      await updateDoc(productRef, {
+        isActive: newStatus,
+        updatedAt: new Date().toISOString()
+      });
+
+      console.log(`✅ Product ${newStatus ? 'activated' : 'deactivated'}:`, product.name);
+    } catch (error) {
+      console.error('Error toggling product status:', error);
+      alert('Failed to update product status. Please try again.');
+    }
+  };
+
   const handleDeleteConfirm = async () => {
     if (!productToDelete || !firestore) {
       return;
@@ -114,10 +247,16 @@ export default function ProductsPage() {
     }
   };
 
-  const filteredProducts = products?.filter((product: any) =>
-    product.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    product.productNumber?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredProducts = products?.filter((product: any) => {
+    // Filter by search query
+    const matchesSearch = product.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      product.productNumber?.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    // Filter by active status
+    const matchesActiveStatus = showInactive ? true : product.isActive !== false;
+    
+    return matchesSearch && matchesActiveStatus;
+  });
 
   // Calculate totals
   const totalOnHand = products?.reduce((sum: number, p: any) => sum + (p.onHand || 0), 0) || 0;
@@ -138,8 +277,30 @@ export default function ProductsPage() {
             />
           </div>
           <div className="flex items-center gap-2">
+            <Button 
+              variant={showInactive ? "default" : "outline"}
+              size="sm"
+              onClick={() => setShowInactive(!showInactive)}
+              className={showInactive ? "bg-orange-600 hover:bg-orange-700" : ""}
+            >
+              {showInactive ? (
+                <>
+                  <EyeOff className="mr-2 h-4 w-4" />
+                  Showing Inactive
+                </>
+              ) : (
+                <>
+                  <Eye className="mr-2 h-4 w-4" />
+                  Show Inactive
+                </>
+              )}
+            </Button>
             <Button variant="outline" size="icon">
               <span className="text-lg">⚡</span>
+            </Button>
+            <Button variant="outline" onClick={() => setIsPriceBookOpen(true)}>
+              <DollarSign className="mr-2 h-4 w-4" />
+              Price Book
             </Button>
             <Button variant="outline" onClick={() => setIsAddProductOpen(true)}>
               <PlusCircle className="mr-2 h-4 w-4" />
@@ -223,7 +384,14 @@ export default function ProductsPage() {
                     )}
                     <span className="text-blue-600">{product.productNumber || product.id.slice(0, 8)}</span>
                   </div>
-                  <div className="col-span-2">{product.name}</div>
+                  <div className="col-span-2 flex items-center gap-2">
+                    {product.name}
+                    {product.isActive === false && (
+                      <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">
+                        Inactive
+                      </span>
+                    )}
+                  </div>
                   <div className="col-span-1 text-right">${(product.sellingPrice || 0).toFixed(2)}</div>
                   <div className="col-span-1 text-right">${(product.costPrice || 0).toFixed(2)}</div>
                   <div className="col-span-1 text-right">{product.onHand || 0}</div>
@@ -353,7 +521,13 @@ export default function ProductsPage() {
 
                             {/* Action Buttons */}
                             <div className="flex gap-2 mt-6">
-                              <Button variant="link" className="text-blue-600 p-0 h-auto">Add unit</Button>
+                              <Button 
+                                variant="link" 
+                                className="text-blue-600 p-0 h-auto"
+                                onClick={(e) => handleAddUnitClick(product, e)}
+                              >
+                                Add unit
+                              </Button>
                               <Button variant="link" className="text-blue-600 p-0 h-auto">Create attribute</Button>
                             </div>
                           </div>
@@ -374,7 +548,11 @@ export default function ProductsPage() {
                             </Button>
                           </div>
                           <div className="flex gap-2">
-                            <Button size="sm" className="bg-blue-600">
+                            <Button 
+                              size="sm" 
+                              className="bg-blue-600"
+                              onClick={(e) => handleEditClick(product, e)}
+                            >
                               <span className="mr-2">✏️</span> Update
                             </Button>
                             <Button variant="outline" size="sm">
@@ -390,8 +568,8 @@ export default function ProductsPage() {
                                 <DropdownMenuItem onClick={() => router.push('/purchase')}>
                                   Purchase
                                 </DropdownMenuItem>
-                                <DropdownMenuItem>
-                                  Deactivate
+                                <DropdownMenuItem onClick={(e) => handleToggleActive(product, e)}>
+                                  {product.isActive === false ? 'Activate' : 'Deactivate'}
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
@@ -419,9 +597,7 @@ export default function ProductsPage() {
 
                       {product.manageByLot === 'yes' && (
                         <TabsContent value="lot" className="p-6">
-                          <div className="text-sm text-muted-foreground">
-                            Lot and expiry date information will be displayed here.
-                          </div>
+                          <ProductLots product={product} />
                         </TabsContent>
                       )}
                     </Tabs>
@@ -444,7 +620,18 @@ export default function ProductsPage() {
         </div>
       </div>
 
-      <AddProductDialog open={isAddProductOpen} onOpenChange={setIsAddProductOpen} />
+      <AddProductDialog 
+        open={isAddProductOpen} 
+        onOpenChange={(open) => {
+          setIsAddProductOpen(open);
+          if (!open) {
+            setIsEditMode(false);
+            setProductToEdit(null);
+          }
+        }}
+        editMode={isEditMode}
+        productToEdit={productToEdit}
+      />
       
       <EditProductImageDialog
         open={isEditImageOpen}
@@ -477,6 +664,14 @@ export default function ProductsPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <AddUnitToProductDialog 
+        open={isAddUnitOpen} 
+        onOpenChange={setIsAddUnitOpen}
+        product={productForUnit}
+      />
+
+      <PriceBookDialog open={isPriceBookOpen} onOpenChange={setIsPriceBookOpen} />
     </>
   );
 }

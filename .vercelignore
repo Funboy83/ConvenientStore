@@ -1,0 +1,11 @@
+node_modules
+.vercel
+dist
+build
+functions/lib
+functions/node_modules
+**/*.log
+/.env
+/.env.*
+/.firebase
+/.firebase*

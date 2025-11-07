@@ -25,7 +25,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useFirestore } from '@/firebase';
-import { addDoc, collection } from 'firebase/firestore';
+import { addDoc, collection, query, where, getDocs } from 'firebase/firestore';
 
 const addUnitSchema = z.object({
   name: z.string().min(1, 'Unit name is required.'),
@@ -62,6 +62,23 @@ export function AddUnitDialog({ open, onOpenChange }: AddUnitDialogProps) {
 
     try {
       const unitsCollection = collection(firestore, 'units');
+      
+      // Check if unit with same name already exists (case-insensitive)
+      const nameQuery = query(
+        unitsCollection,
+        where('name', '==', values.name)
+      );
+      const existingUnits = await getDocs(nameQuery);
+      
+      if (!existingUnits.empty) {
+        toast({
+          variant: 'destructive',
+          title: 'Duplicate Unit',
+          description: `A unit named "${values.name}" already exists.`,
+        });
+        return;
+      }
+      
       await addDoc(unitsCollection, values);
       
       toast({

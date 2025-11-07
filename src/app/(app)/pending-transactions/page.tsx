@@ -258,6 +258,70 @@ export default function PendingTransactionsPage() {
     }
   }
 
+  // Void a transaction (save to voided_transactions for audit trail)
+  const voidTransaction = async (transaction: PendingTransaction) => {
+    if (!confirm(`Are you sure you want to VOID this transaction?\n\nTransaction ID: ${transaction.id.substring(0, 8)}\nTotal: $${transaction.total.toFixed(2)}\n\nThis will be saved as a voided transaction for audit purposes.\nInventory will NOT be deducted.`)) {
+      return
+    }
+
+    setProcessing(transaction.id)
+    setMessage(null)
+
+    try {
+      // Get current admin user info
+      const currentUser = auth.currentUser
+      const voidedBy = currentUser?.email || currentUser?.uid || 'unknown'
+
+      // Create voided transaction record
+      const voidedTransactionData = {
+        // Original transaction data
+        ...transaction,
+        
+        // Void metadata
+        status: 'voided',
+        isPending: false,
+        isFinalized: false,
+        isVoided: true,
+        
+        // Audit trail
+        voidedAt: new Date().toISOString(),
+        voidedAtTimestamp: Date.now(),
+        voidedBy: voidedBy,
+        originalTransactionId: transaction.id,
+        
+        // Keep original timestamps
+        transactionCreatedAt: transaction.createdAt,
+        transactionCreatedAtTimestamp: transaction.createdAtTimestamp,
+      }
+
+      // Step 1: Add to voided_transactions collection
+      const voidedRef = collection(firestore, 'voided_transactions')
+      await addDoc(voidedRef, voidedTransactionData)
+
+      // Step 2: Delete from pending_transactions
+      const pendingDoc = doc(firestore, 'pending_transactions', transaction.id)
+      await deleteDoc(pendingDoc)
+
+      console.log('✅ Transaction voided and saved to audit trail')
+
+      setMessage({
+        type: 'success',
+        text: `Transaction ${transaction.id.substring(0, 8)} has been voided and saved to audit trail.`
+      })
+
+      // Reload transactions
+      await loadTransactions()
+    } catch (error: any) {
+      console.error('Error voiding transaction:', error)
+      setMessage({
+        type: 'error',
+        text: error.message || 'Failed to void transaction'
+      })
+    } finally {
+      setProcessing(null)
+    }
+  }
+
   // Finalize all transactions
   const finalizeAll = async () => {
     if (!confirm(`Finalize all ${transactions.length} pending transactions?`)) {
@@ -488,16 +552,29 @@ export default function PendingTransactionsPage() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <Button
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            finalizeTransaction(txn)
-                          }}
-                          disabled={processing === txn.id}
-                        >
-                          {processing === txn.id ? 'Processing...' : 'Finalize'}
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              finalizeTransaction(txn)
+                            }}
+                            disabled={processing === txn.id}
+                          >
+                            {processing === txn.id ? 'Processing...' : 'Finalize'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              voidTransaction(txn)
+                            }}
+                            disabled={processing === txn.id}
+                          >
+                            Void
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

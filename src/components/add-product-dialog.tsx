@@ -1,7 +1,8 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Dialog,
   DialogContent,
@@ -32,7 +33,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './ui/card';
 import { ScrollArea } from './ui/scroll-area';
 import { useCollection, useDoc, useFirestore, useMemoFirebase } from '@/firebase';
-import { collection, doc, addDoc } from 'firebase/firestore';
+import { collection, doc, addDoc, updateDoc } from 'firebase/firestore';
 import { AddAttributeDialog } from './add-attribute-dialog';
 import { AddUnitDialog } from './add-unit-dialog';
 import { AddCategoryDialog } from './add-category-dialog';
@@ -69,10 +70,13 @@ type AddProductFormValues = z.infer<typeof addProductSchema>;
 interface AddProductDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  editMode?: boolean;
+  productToEdit?: any;
 }
 
-export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) {
+export function AddProductDialog({ open, onOpenChange, editMode = false, productToEdit }: AddProductDialogProps) {
   const { toast } = useToast();
+  const router = useRouter();
   const firestore = useFirestore();
   
   // State for opening modals
@@ -97,7 +101,25 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
 
   const form = useForm<AddProductFormValues>({
     resolver: zodResolver(addProductSchema),
-    defaultValues: {
+    defaultValues: editMode && productToEdit ? {
+      productNumber: productToEdit.productNumber || '',
+      barcode: productToEdit.barcode || '',
+      name: productToEdit.name || '',
+      description: productToEdit.description || '',
+      category: productToEdit.category || '',
+      brand: productToEdit.brand || '',
+      costPrice: productToEdit.costPrice || 0,
+      sellingPrice: productToEdit.sellingPrice || 0,
+      manageByLot: productToEdit.manageByLot || 'no',
+      onHand: productToEdit.onHand || 0,
+      minInventory: productToEdit.minInventory || 0,
+      maxInventory: productToEdit.maxInventory || 999999999,
+      position: productToEdit.position || '',
+      weight: productToEdit.weight || 0,
+      weightUnit: productToEdit.weightUnit || 'g',
+      forSale: productToEdit.forSale !== false,
+      attributes: productToEdit.attributes || [],
+    } : {
       name: '',
       description: '',
       barcode: '',
@@ -118,6 +140,51 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
     control: form.control,
     name: 'attributes',
   });
+
+  // Reset form when opening in edit mode
+  useEffect(() => {
+    if (open && editMode && productToEdit) {
+      form.reset({
+        productNumber: productToEdit.productNumber || '',
+        barcode: productToEdit.barcode || '',
+        name: productToEdit.name || '',
+        description: productToEdit.description || '',
+        category: productToEdit.category || '',
+        brand: productToEdit.brand || '',
+        costPrice: productToEdit.costPrice || 0,
+        sellingPrice: productToEdit.sellingPrice || 0,
+        manageByLot: productToEdit.manageByLot || 'no',
+        onHand: productToEdit.onHand || 0,
+        minInventory: productToEdit.minInventory || 0,
+        maxInventory: productToEdit.maxInventory || 999999999,
+        position: productToEdit.position || '',
+        weight: productToEdit.weight || 0,
+        weightUnit: productToEdit.weightUnit || 'g',
+        forSale: productToEdit.forSale !== false,
+        attributes: productToEdit.attributes || [],
+      });
+    } else if (open && !editMode) {
+      // Reset to empty form for add mode
+      form.reset({
+        name: '',
+        description: '',
+        barcode: '',
+        productNumber: '',
+        category: '',
+        brand: '',
+        attributes: [],
+        manageByLot: 'no',
+        onHand: 0,
+        minInventory: 0,
+        maxInventory: 999999999,
+        costPrice: 0,
+        sellingPrice: 0,
+        weight: 0,
+        weightUnit: 'g',
+        forSale: true,
+      });
+    }
+  }, [open, editMode, productToEdit, form]);
 
   async function onSubmit(values: AddProductFormValues) {
     if (!firestore) {
@@ -164,16 +231,28 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
         }
       }
 
-      // Add timestamp
-      cleanData.createdAt = new Date().toISOString();
-
-      const productsCollection = collection(firestore, 'products');
-      await addDoc(productsCollection, cleanData);
+      if (editMode && productToEdit) {
+        // Update existing product
+        const productRef = doc(firestore, 'products', productToEdit.id);
+        cleanData.updatedAt = new Date().toISOString();
+        await updateDoc(productRef, cleanData);
+        
+        toast({
+          title: 'Product Updated',
+          description: `Product "${values.name}" has been successfully updated.`,
+        });
+      } else {
+        // Add new product
+        cleanData.createdAt = new Date().toISOString();
+        const productsCollection = collection(firestore, 'products');
+        await addDoc(productsCollection, cleanData);
+        
+        toast({
+          title: 'Product Added',
+          description: `Product "${values.name}" has been successfully created.`,
+        });
+      }
       
-      toast({
-        title: 'Product Added',
-        description: `Product "${values.name}" has been successfully created.`,
-      });
       form.reset();
       onOpenChange(false);
     } catch (error: any) {
@@ -193,7 +272,7 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col h-full">
             <DialogHeader className="p-6 pb-4 border-b">
-              <DialogTitle>Create product</DialogTitle>
+              <DialogTitle>{editMode ? 'Edit product' : 'Create product'}</DialogTitle>
             </DialogHeader>
             <div className="flex-1 overflow-hidden">
                 <ScrollArea className="h-full">
@@ -263,7 +342,15 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                                               {categories && categories.length > 0 ? (
                                                 categories.map((c: any) => <SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>)
                                               ) : (
-                                                <div className="p-2 text-sm text-muted-foreground">No categories. Add in Settings.</div>
+                                                <div 
+                                                  className="p-2 text-sm text-muted-foreground hover:text-primary cursor-pointer hover:bg-muted"
+                                                  onClick={() => {
+                                                    onOpenChange(false);
+                                                    router.push('/settings');
+                                                  }}
+                                                >
+                                                  No categories. Click to add in Settings →
+                                                </div>
                                               )}
                                             </SelectContent>
                                           </Select>
@@ -296,7 +383,15 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                                                 {brands && brands.length > 0 ? (
                                                   brands.map((b: any) => <SelectItem key={b.id} value={b.name}>{b.name}</SelectItem>)
                                                 ) : (
-                                                  <div className="p-2 text-sm text-muted-foreground">No brands. Add in Settings.</div>
+                                                  <div 
+                                                    className="p-2 text-sm text-muted-foreground hover:text-primary cursor-pointer hover:bg-muted"
+                                                    onClick={() => {
+                                                      onOpenChange(false);
+                                                      router.push('/settings');
+                                                    }}
+                                                  >
+                                                    No brands. Click to add in Settings →
+                                                  </div>
                                                 )}
                                               </SelectContent>
                                             </Select>
@@ -425,7 +520,15 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                                           {positions.length > 0 ? (
                                             positions.map((p: any) => <SelectItem key={p} value={p}>{p}</SelectItem>)
                                           ) : (
-                                            <div className="p-2 text-sm text-muted-foreground">No positions. Add in Settings.</div>
+                                            <div 
+                                              className="p-2 text-sm text-muted-foreground hover:text-primary cursor-pointer hover:bg-muted"
+                                              onClick={() => {
+                                                onOpenChange(false);
+                                                router.push('/settings');
+                                              }}
+                                            >
+                                              No positions. Click to add in Settings →
+                                            </div>
                                           )}
                                         </SelectContent>
                                       </Select>
@@ -465,17 +568,25 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                                                 control={form.control}
                                                 name="weightUnit"
                                                 render={({ field: selectField }) => (
-                                                <Select onValueChange={selectField.onChange} defaultValue={selectField.value}>
+                                                <Select onValueChange={selectField.onChange} value={selectField.value}>
                                                     <FormControl>
                                                         <SelectTrigger className="absolute right-1 top-1/2 -translate-y-1/2 w-16 h-8 border-none bg-transparent">
-                                                            <SelectValue />
+                                                            <SelectValue placeholder="Unit" />
                                                         </SelectTrigger>
                                                     </FormControl>
                                                     <SelectContent>
                                                         {weightUnits && weightUnits.length > 0 ? (
                                                           weightUnits.map((u: any) => <SelectItem key={u.id} value={u.abbreviation}>{u.abbreviation}</SelectItem>)
                                                         ) : (
-                                                          <div className="p-2 text-sm text-muted-foreground">No units. Add in Settings.</div>
+                                                          <div 
+                                                            className="p-2 text-sm text-muted-foreground hover:text-primary cursor-pointer hover:bg-muted"
+                                                            onClick={() => {
+                                                              onOpenChange(false);
+                                                              router.push('/settings');
+                                                            }}
+                                                          >
+                                                            No units. Click to add in Settings →
+                                                          </div>
                                                         )}
                                                     </SelectContent>
                                                 </Select>
@@ -574,7 +685,7 @@ export function AddProductDialog({ open, onOpenChange }: AddProductDialogProps) 
                             Cancel
                             </Button>
                         </DialogClose>
-                        <Button type="submit">Save</Button>
+                        <Button type="submit">{editMode ? 'Update' : 'Save'}</Button>
                     </div>
                 </div>
             </DialogFooter>

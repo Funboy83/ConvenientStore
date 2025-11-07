@@ -18,9 +18,11 @@ import {
 } from '@/components/ui/table';
 import { Search, Trash2, Plus, X, ImagePlus } from 'lucide-react';
 import { useCollection, useFirestore, useMemoFirebase, initializeFirebase } from '@/firebase';
-import { collection, query, where } from 'firebase/firestore';
+import { collection, query, where, getDocs, addDoc, updateDoc, increment } from 'firebase/firestore';
+import { getAuth } from 'firebase/auth';
 import { AddLotDialog } from '@/components/add-lot-dialog';
 import { EditProductImageDialog } from '@/components/edit-product-image-dialog';
+import { AddSupplierDialog } from '@/components/add-supplier-dialog';
 import {
   Select,
   SelectContent,
@@ -45,6 +47,7 @@ interface PurchaseItem {
   expiryDate?: string;
   onHand?: number;
   manageByLot?: string;
+  firestoreId?: string; // The actual Firestore document ID
   tempLot?: {
     lotName: string;
     expiryDate: string;
@@ -58,6 +61,9 @@ export default function PurchasePage() {
   const { firestore, auth } = initializeFirebase();
   const [purchaseItems, setPurchaseItems] = useState<PurchaseItem[]>([]);
   const [supplier, setSupplier] = useState('');
+  const [supplierId, setSupplierId] = useState('');
+  const [supplierSearchQuery, setSupplierSearchQuery] = useState('');
+  const [showSupplierDropdown, setShowSupplierDropdown] = useState(false);
   const [receiptNumber, setReceiptNumber] = useState('Generated automatically');
   const [poNumber, setPoNumber] = useState('');
   const [discount, setDiscount] = useState(0);
@@ -68,6 +74,7 @@ export default function PurchasePage() {
   const [selectedProductIdForLots, setSelectedProductIdForLots] = useState<string | null>(null);
   const [isEditImageOpen, setIsEditImageOpen] = useState(false);
   const [selectedProductForImage, setSelectedProductForImage] = useState<PurchaseItem | null>(null);
+  const [isAddSupplierOpen, setIsAddSupplierOpen] = useState(false);
 
   // Fetch products from Firestore
   const { data: products } = useCollection(
@@ -77,6 +84,11 @@ export default function PurchasePage() {
   // Fetch lots from Firestore
   const { data: allLots } = useCollection(
     useMemoFirebase(() => (firestore ? collection(firestore, 'lots') : null), [firestore])
+  );
+
+  // Fetch suppliers from Firestore
+  const { data: suppliers } = useCollection(
+    useMemoFirebase(() => (firestore ? collection(firestore, 'suppliers') : null), [firestore])
   );
 
   // Authentication check
@@ -102,9 +114,15 @@ export default function PurchasePage() {
   const total = subTotal - discount;
 
   const handleAddProduct = (product: any) => {
+    console.log('➕ Adding product:', product);
+    console.log('  Product Number:', product.productNumber);
+    console.log('  Product ID:', product.id);
+    
+    // Store both the productNumber (if exists) and the document ID
+    // We'll use whichever one is available for the query
     const newItem: PurchaseItem = {
       id: Math.random().toString(),
-      productNumber: product.productNumber || product.id,
+      productNumber: product.productNumber || product.id, // Use productNumber if exists, otherwise use document ID
       productName: product.name,
       imageUrl: product.imageUrl || product.image,
       unit: product.weightUnit || 'pcs',
@@ -113,6 +131,7 @@ export default function PurchasePage() {
       discount: 0,
       total: 0,
       manageByLot: product.manageByLot,
+      firestoreId: product.id, // Store the actual Firestore document ID
     };
     setPurchaseItems([...purchaseItems, newItem]);
     setSearchQuery('');
@@ -279,11 +298,25 @@ export default function PurchasePage() {
       return;
     }
 
+    if (purchaseItems.length === 0) {
+      alert('Please add at least one product to the purchase order');
+      return;
+    }
+
+    if (!supplier) {
+      alert('Please select a supplier');
+      return;
+    }
+
     try {
-      // First, create lots for items that have tempLot
-      const { addDoc } = await import('firebase/firestore');
-      const lotsCollection = collection(firestore, 'lots');
+      console.log('🚀 Starting purchase completion...');
+      console.log('📋 Purchase items:', purchaseItems);
+      console.log('🏢 Supplier:', supplier, 'ID:', supplierId);
       
+      const lotsCollection = collection(firestore, 'lots');
+      const purchasesCollection = collection(firestore, 'purchase_orders');
+      
+      // Step 1: Create lots for items that have tempLot
       const updatedItems = await Promise.all(
         purchaseItems.map(async (item) => {
           if (item.tempLot) {
@@ -298,7 +331,6 @@ export default function PurchasePage() {
               status: 'active',
             });
             
-            // Return item with lotId
             return {
               ...item,
               lotId: docRef.id,
@@ -308,34 +340,158 @@ export default function PurchasePage() {
         })
       );
       
-      // TODO: Now save the purchase order to Firestore
-      // TODO: Update product inventory
+      // Step 2: Update product inventory (increase onHand quantity)
+      console.log('📦 Updating inventory for', updatedItems.length, 'items');
+      
+      const { doc } = await import('firebase/firestore');
+      let updateResults = [];
+      
+      for (const item of updatedItems) {
+        try {
+          // Use the Firestore document ID directly if available
+          if (item.firestoreId) {
+            console.log(`  � Updating product by document ID: ${item.firestoreId} (${item.productName})`);
+            
+            const productRef = doc(firestore, 'products', item.firestoreId);
+            
+            // Update inventory (increase quantity)
+            await updateDoc(productRef, {
+              onHand: increment(item.quantity),
+              updatedAt: new Date().toISOString()
+            });
+            
+            console.log(`  ✅ Updated ${item.productName}: +${item.quantity} to inventory`);
+            updateResults.push(`✅ ${item.productName}: +${item.quantity}`);
+          } else {
+            // Fallback: search by productNumber if no firestoreId
+            console.log(`  🔍 Searching for product by productNumber: ${item.productNumber} (${item.productName})`);
+            
+            const productsQuery = query(
+              collection(firestore, 'products'),
+              where('productNumber', '==', item.productNumber)
+            );
+            const productsSnapshot = await getDocs(productsQuery);
+            
+            if (!productsSnapshot.empty) {
+              const productDoc = productsSnapshot.docs[0];
+              
+              await updateDoc(productDoc.ref, {
+                onHand: increment(item.quantity),
+                updatedAt: new Date().toISOString()
+              });
+              
+              console.log(`  ✅ Updated ${item.productName}: +${item.quantity} to inventory`);
+              updateResults.push(`✅ ${item.productName}: +${item.quantity}`);
+            } else {
+              console.warn(`  ⚠️ Product "${item.productNumber}" not found`);
+              updateResults.push(`⚠️ ${item.productName}: Not found`);
+            }
+          }
+        } catch (error) {
+          console.error(`  ❌ Error updating ${item.productName}:`, error);
+          updateResults.push(`❌ ${item.productName}: Error - ${error}`);
+        }
+      }
+      
+      // Show summary of updates
+      console.log('\n📋 Update Summary:\n' + updateResults.join('\n'));
+      
+      // Step 3: Generate purchase order number
+      const timestamp = Date.now();
+      const purchaseOrderNumber = `PO${String(timestamp).slice(-8)}`;
+      
+      // Step 4: Save purchase order to Firestore
+      const purchaseOrderData = {
+        purchaseOrderNumber,
+        receiptNumber,
+        poNumber: poNumber || '',
+        supplierId: supplierId || '',
+        supplierName: supplier,
+        items: updatedItems.map(item => {
+          const itemData: any = {
+            productNumber: item.productNumber,
+            productName: item.productName,
+            unit: item.unit,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            discount: item.discount,
+            total: item.total,
+            note: item.note || '',
+          };
+          
+          // Only add optional fields if they have values
+          if (item.imageUrl) itemData.imageUrl = item.imageUrl;
+          if (item.lotId) itemData.lotId = item.lotId;
+          if (item.lotName) itemData.lotName = item.lotName;
+          if (item.expiryDate) itemData.expiryDate = item.expiryDate;
+          
+          return itemData;
+        }),
+        subtotal: subTotal,
+        discount,
+        total,
+        note: note || '',
+        status: 'completed',
+        createdAt: new Date().toISOString(),
+        createdAtTimestamp: Date.now(),
+        createdBy: auth.currentUser?.uid || 'anonymous',
+      };
+      
+      await addDoc(purchasesCollection, purchaseOrderData);
+      
+      console.log('✅ Purchase order completed:', purchaseOrderNumber);
       
       toast({
         title: 'Purchase completed',
-        description: 'Purchase order has been completed successfully.',
+        description: `Purchase order ${purchaseOrderNumber} has been completed successfully. Inventory updated.`,
       });
       
       // Clear the form
       setPurchaseItems([]);
       setSupplier('');
+      setSupplierId('');
+      setSupplierSearchQuery('');
       setPoNumber('');
       setDiscount(0);
       setNote('');
       
-    } catch (error) {
-      console.error('Error completing purchase:', error);
-      alert('Failed to complete purchase. Please try again.');
+    } catch (error: any) {
+      console.error('❌ Error completing purchase:', error);
+      console.error('Error message:', error?.message);
+      console.error('Error stack:', error?.stack);
+      toast({
+        title: 'Error',
+        description: `Failed to complete purchase: ${error?.message || 'Unknown error'}`,
+        variant: 'destructive',
+      });
     }
   };
 
-  // Filter products based on search
+  // Filter products based on search (exclude inactive products)
   const filteredProducts = products?.filter(
     (p: any) =>
-      p.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.isActive !== false) && // Only show active products
+      (p.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.productNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      p.barcode?.toLowerCase().includes(searchQuery.toLowerCase())
+      p.barcode?.toLowerCase().includes(searchQuery.toLowerCase()))
   );
+
+  // Filter suppliers based on search
+  const filteredSuppliers = suppliers?.filter(
+    (s: any) =>
+      s.supplierName?.toLowerCase().includes(supplierSearchQuery.toLowerCase()) ||
+      s.supplierNumber?.includes(supplierSearchQuery) ||
+      s.phoneNumber?.includes(supplierSearchQuery) ||
+      s.email?.toLowerCase().includes(supplierSearchQuery.toLowerCase())
+  );
+
+  // Handle supplier selection
+  const handleSelectSupplier = (selectedSupplier: any) => {
+    setSupplier(selectedSupplier.supplierName);
+    setSupplierId(selectedSupplier.id);
+    setSupplierSearchQuery(selectedSupplier.supplierName);
+    setShowSupplierDropdown(false);
+  };
 
   return (
     <>
@@ -563,11 +719,60 @@ export default function PurchasePage() {
                 <Label>Search supplier (F4)</Label>
                 <div className="relative mt-1">
                   <Input
-                    value={supplier}
-                    onChange={(e) => setSupplier(e.target.value)}
-                    placeholder="Search supplier"
+                    value={supplierSearchQuery}
+                    onChange={(e) => {
+                      setSupplierSearchQuery(e.target.value);
+                      setShowSupplierDropdown(e.target.value.length > 0);
+                    }}
+                    onFocus={() => {
+                      if (supplierSearchQuery.length > 0) {
+                        setShowSupplierDropdown(true);
+                      }
+                    }}
+                    onBlur={() => {
+                      // Delay to allow click on dropdown
+                      setTimeout(() => setShowSupplierDropdown(false), 200);
+                    }}
+                    placeholder="Search supplier by name, contact, or phone"
                   />
-                  <Plus className="absolute right-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <div className="absolute right-3 top-3" title="Add new supplier">
+                    <Plus className="h-4 w-4 text-muted-foreground cursor-pointer hover:text-blue-600" 
+                          onClick={() => setIsAddSupplierOpen(true)} />
+                  </div>
+                  {showSupplierDropdown && supplierSearchQuery && (
+                    <div className="absolute z-10 w-full mt-1 bg-white border rounded-md shadow-lg max-h-60 overflow-auto">
+                      {filteredSuppliers && filteredSuppliers.length > 0 ? (
+                        filteredSuppliers.slice(0, 10).map((sup: any) => (
+                          <button
+                            key={sup.id}
+                            className="w-full px-4 py-2 text-left hover:bg-muted"
+                            onMouseDown={(e) => {
+                              e.preventDefault(); // Prevent blur from firing
+                              handleSelectSupplier(sup);
+                            }}
+                          >
+                            <div className="font-medium">{sup.supplierName}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {sup.supplierNumber} | {sup.phoneNumber || 'No phone'} {sup.email ? `| ${sup.email}` : ''}
+                            </div>
+                          </button>
+                        ))
+                      ) : suppliers && suppliers.length > 0 ? (
+                        <div className="px-4 py-3 text-sm text-muted-foreground">
+                          No suppliers found matching "{supplierSearchQuery}"
+                        </div>
+                      ) : (
+                        <div className="px-4 py-3 text-sm text-muted-foreground">
+                          No suppliers in database. Click + to add one.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {supplier && (
+                    <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded text-sm">
+                      <div className="font-semibold text-blue-900">✓ Selected: {supplier}</div>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -652,6 +857,11 @@ export default function PurchasePage() {
         productName={selectedProductForImage?.productName || ''}
         currentImageUrl={selectedProductForImage?.imageUrl}
         onSave={handleSaveProductImage}
+      />
+
+      <AddSupplierDialog 
+        open={isAddSupplierOpen} 
+        onOpenChange={setIsAddSupplierOpen} 
       />
     </>
   );

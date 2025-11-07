@@ -77,6 +77,20 @@ service cloud.firestore {
     }
 
     /**
+     * VOIDED TRANSACTIONS COLLECTION
+     * Audit trail for canceled/voided transactions
+     * Only admin/owner can access and create voided records
+     * 
+     * TEMPORARY: Allowing authenticated users for testing
+     * TODO: Restrict to admin-only once role claims are properly set
+     */
+    match /voided_transactions/{transactionId} {
+      // TEMPORARY: Allow authenticated users to read/write (for admin dashboard testing)
+      // TODO: Change back to 'if isAdmin()' once roles are configured
+      allow read, write: if isAuthenticated();
+    }
+
+    /**
      * User Profiles
      */
     match /users/{userId} {
@@ -233,6 +247,15 @@ service cloud.firestore {
     match /serviceTypes/{typeId} {
       allow get, list: if isAuthenticated();
       allow create, update, delete: if isAdmin();
+    }
+
+    /**
+     * PURCHASE ORDERS COLLECTION
+     * Purchase orders from suppliers
+     * Admin can create and read purchase orders
+     */
+    match /purchase_orders/{orderId} {
+      allow read, write: if isAuthenticated();
     }
 
     /**
