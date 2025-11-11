@@ -316,6 +316,9 @@ export default function PendingTransactionsPage() {
         isFinalized: true,
         inventoryDeducted: true,
         
+        // Link to temporary invoice (for receipt barcode matching)
+        tempInvoiceId: transaction.id, // Store the pending_transaction ID
+        
         // Timestamps
         transactionCreatedAt: transaction.createdAt,
         transactionCreatedAtTimestamp: transaction.createdAtTimestamp,
