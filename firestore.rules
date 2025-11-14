@@ -105,8 +105,8 @@ service cloud.firestore {
     }
 
     /**
-     * Products Collection (Parent Products)
-     * Contains parent product info with shared barcode
+     * Products Collection
+     * Contains product info. If product has attributes, stock tracked per attribute combination.
      * Everyone can read (for POS), only admin can modify
      * 
      * TEMPORARY: Allowing authenticated users to update for inventory deduction
@@ -115,18 +115,6 @@ service cloud.firestore {
     match /products/{productId} {
       allow get, list: if isAuthenticated();
       // TEMPORARY: Allow authenticated users to update (for inventory deduction during finalization)
-      allow create, update, delete: if isAuthenticated();
-    }
-
-    /**
-     * Variants Collection
-     * Contains actual sellable items with specific attributes (e.g., "Shampoo - Rose")
-     * Each variant links to a parent product via productId
-     * Stock tracking happens at variant level
-     * Everyone can read (for POS), only admin can modify
-     */
-    match /variants/{variantId} {
-      allow get, list: if isAuthenticated();
       allow create, update, delete: if isAuthenticated();
     }
 

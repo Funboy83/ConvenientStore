@@ -15,34 +15,33 @@ export type NavItem = {
   role?: UserRole[];
 };
 
-// Parent Product (groups variants with shared barcode)
+// Product with optional attributes for variants
 export type Product = {
   id: string;
   name: string;
-  sharedBarcode: string; // Single barcode for all variants
-  hasVariants: boolean; // Flag to check if product has variants
+  barcode: string; // Shared barcode for all attribute combinations
   category?: string;
   brand?: string;
   image?: string;
   imageHint?: string;
   description?: string;
-  // Fields that used to be here are now in variants
-};
-
-// Variant (actual sellable item with specific attributes)
-export type Variant = {
-  id: string;
-  productId: string; // Links to parent product
-  variantName: string; // e.g., "Rose", "Lavender"
-  fullName: string; // e.g., "Shampoo - Rose"
-  stockQuantity: number; // Inventory tracked per variant
-  costPrice: number;
-  sellingPrice: number;
-  sku?: string; // Optional internal code
+  costPrice?: number;
+  sellingPrice?: number;
+  // Parent product relationship
+  parentProductId?: string; // If set, this is a child/variant product
+  isParentProduct?: boolean; // If true, this is a parent-only product (not directly sellable)
+  // If attributes exist, this is a parent product
+  attributes?: Array<{
+    attributeName: string; // e.g., "Smell"  
+    attributeValue: string; // e.g., "Rose"
+  }>;
+  // Stock tracked per attribute combination
+  stockByAttribute?: Record<string, number>; // e.g., {"Rose": 15, "Lavender": 20}
+  onHand?: number; // Total stock (for products without attributes)
+  manageByLot?: string;
+  position?: string;
   weight?: number;
   weightUnit?: string;
-  position?: string;
-  manageByLot?: boolean;
   isActive?: boolean;
 };
 

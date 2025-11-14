@@ -39,17 +39,14 @@ import { AddUnitDialog } from './add-unit-dialog';
 import { AddCategoryDialog } from './add-category-dialog';
 import { AddBrandDialog } from './add-brand-dialog';
 import { SetupUnitsAttributesDialog } from './setup-units-attributes-dialog';
-import { ManageVariantsDialog } from './manage-variants-dialog';
 
 const addProductSchema = z.object({
   productNumber: z.string().optional(),
-  barcode: z.string().optional(), // Now this is the shared barcode
+  barcode: z.string().optional(),
   name: z.string().min(1, 'Product name is required.'),
   description: z.string().optional(),
   category: z.string().optional(),
   brand: z.string().optional(),
-  hasVariants: z.boolean().default(false), // New field to indicate if product has variants
-  // These fields are now only for simple products (no variants)
   costPrice: z.coerce.number().optional(),
   sellingPrice: z.coerce.number().optional(),
   manageByLot: z.enum(["yes", "no"]).default("no"),
@@ -88,7 +85,6 @@ export function AddProductDialog({ open, onOpenChange, editMode = false, product
   const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
   const [isAddBrandOpen, setIsAddBrandOpen] = useState(false);
   const [isSetupUnitsAttributesOpen, setIsSetupUnitsAttributesOpen] = useState(false);
-  const [isManageVariantsOpen, setIsManageVariantsOpen] = useState(false);
 
   // Fetch attributes from Firestore (for position attribute)
   const { data: positionData } = useDoc(useMemoFirebase(() => firestore ? doc(firestore, 'productAttributes', 'position') : null, [firestore]));
@@ -107,12 +103,11 @@ export function AddProductDialog({ open, onOpenChange, editMode = false, product
     resolver: zodResolver(addProductSchema),
     defaultValues: editMode && productToEdit ? {
       productNumber: productToEdit.productNumber || '',
-      barcode: productToEdit.barcode || productToEdit.sharedBarcode || '',
+      barcode: productToEdit.barcode || '',
       name: productToEdit.name || '',
       description: productToEdit.description || '',
       category: productToEdit.category || '',
       brand: productToEdit.brand || '',
-      hasVariants: productToEdit.hasVariants || false,
       costPrice: productToEdit.costPrice || 0,
       sellingPrice: productToEdit.sellingPrice || 0,
       manageByLot: productToEdit.manageByLot || 'no',
@@ -128,7 +123,6 @@ export function AddProductDialog({ open, onOpenChange, editMode = false, product
       name: '',
       description: '',
       barcode: '',
-      hasVariants: false,
       attributes: [],
       manageByLot: 'no',
       onHand: 0,
@@ -152,12 +146,11 @@ export function AddProductDialog({ open, onOpenChange, editMode = false, product
     if (open && editMode && productToEdit) {
       form.reset({
         productNumber: productToEdit.productNumber || '',
-        barcode: productToEdit.barcode || productToEdit.sharedBarcode || '',
+        barcode: productToEdit.barcode || '',
         name: productToEdit.name || '',
         description: productToEdit.description || '',
         category: productToEdit.category || '',
         brand: productToEdit.brand || '',
-        hasVariants: productToEdit.hasVariants || false,
         costPrice: productToEdit.costPrice || 0,
         sellingPrice: productToEdit.sellingPrice || 0,
         manageByLot: productToEdit.manageByLot || 'no',
@@ -179,7 +172,6 @@ export function AddProductDialog({ open, onOpenChange, editMode = false, product
         productNumber: '',
         category: '',
         brand: '',
-        hasVariants: false,
         attributes: [],
         manageByLot: 'no',
         onHand: 0,
@@ -195,6 +187,11 @@ export function AddProductDialog({ open, onOpenChange, editMode = false, product
   }, [open, editMode, productToEdit, form]);
 
   async function onSubmit(values: AddProductFormValues) {
+    console.log('=== FORM SUBMIT STARTED ===');
+    console.log('Edit mode:', editMode);
+    console.log('Product to edit:', productToEdit);
+    console.log('Form values received:', JSON.stringify(values, null, 2));
+    
     if (!firestore) {
       toast({
         variant: 'destructive',
@@ -209,38 +206,37 @@ export function AddProductDialog({ open, onOpenChange, editMode = false, product
       const cleanData: any = {
         name: values.name,
         forSale: values.forSale ?? true,
-        hasVariants: values.hasVariants || false,
-        sharedBarcode: values.barcode || '', // Store as sharedBarcode
+        manageByLot: values.manageByLot || 'no',
+        isActive: true, // All new products are active by default
       };
 
       // Only add optional fields if they have values
       if (values.productNumber) cleanData.productNumber = values.productNumber;
+      cleanData.barcode = values.barcode || ''; // Always save barcode (even if empty)
+      console.log('Barcode from form:', values.barcode);
+      console.log('Barcode being saved:', cleanData.barcode);
+      
       if (values.description) cleanData.description = values.description;
       if (values.category) cleanData.category = values.category;
       if (values.brand) cleanData.brand = values.brand;
+      if (values.position) cleanData.position = values.position;
       
-      // If product has variants, don't store these fields (they're stored in variants)
-      if (!values.hasVariants) {
-        cleanData.manageByLot = values.manageByLot || 'no';
-        if (values.position) cleanData.position = values.position;
-        
-        // Add numeric fields (use 0 as default if not provided)
-        cleanData.costPrice = values.costPrice || 0;
-        cleanData.sellingPrice = values.sellingPrice || 0;
-        cleanData.onHand = values.onHand || 0;
-        cleanData.minInventory = values.minInventory || 0;
-        cleanData.maxInventory = values.maxInventory || 0;
-        cleanData.weight = values.weight || 0;
-        cleanData.weightUnit = values.weightUnit || 'g';
+      // Add numeric fields (use 0 as default if not provided)
+      cleanData.costPrice = values.costPrice || 0;
+      cleanData.sellingPrice = values.sellingPrice || 0;
+      cleanData.onHand = values.onHand || 0;
+      cleanData.minInventory = values.minInventory || 0;
+      cleanData.maxInventory = values.maxInventory || 0;
+      cleanData.weight = values.weight || 0;
+      cleanData.weightUnit = values.weightUnit || 'g';
 
-        // Only add attributes if there are valid ones
-        if (values.attributes && values.attributes.length > 0) {
-          const validAttributes = values.attributes.filter(
-            attr => attr.key && attr.value
-          );
-          if (validAttributes.length > 0) {
-            cleanData.attributes = validAttributes;
-          }
+      // Only add attributes if there are valid ones
+      if (values.attributes && values.attributes.length > 0) {
+        const validAttributes = values.attributes.filter(
+          attr => attr.key && attr.value
+        );
+        if (validAttributes.length > 0) {
+          cleanData.attributes = validAttributes;
         }
       }
 
@@ -248,7 +244,14 @@ export function AddProductDialog({ open, onOpenChange, editMode = false, product
         // Update existing product
         const productRef = doc(firestore, 'products', productToEdit.id);
         cleanData.updatedAt = new Date().toISOString();
+        
+        console.log('=== UPDATING PRODUCT ===');
+        console.log('Product ID:', productToEdit.id);
+        console.log('Update data:', JSON.stringify(cleanData, null, 2));
+        
         await updateDoc(productRef, cleanData);
+        
+        console.log('=== UPDATE SUCCESSFUL ===');
         
         toast({
           title: 'Product Updated',
@@ -258,32 +261,12 @@ export function AddProductDialog({ open, onOpenChange, editMode = false, product
         // Add new product
         cleanData.createdAt = new Date().toISOString();
         const productsCollection = collection(firestore, 'products');
-        const docRef = await addDoc(productsCollection, cleanData);
+        await addDoc(productsCollection, cleanData);
         
-        // If hasVariants is true, open the manage variants dialog
-        if (values.hasVariants) {
-          toast({
-            title: 'Product Added',
-            description: `Product "${values.name}" has been created. Now add variants.`,
-          });
-          // Store the new product ID to open variants dialog
-          const newProductData = { id: docRef.id, ...cleanData };
-          // We'll open the manage variants dialog after closing this one
-          setTimeout(() => {
-            form.reset();
-            onOpenChange(false);
-            // You'll need to handle opening the variants dialog here
-            // For now, we'll let the user open it from the products list
-          }, 500);
-        } else {
-          toast({
-            title: 'Product Added',
-            description: `Product "${values.name}" has been successfully created.`,
-          });
-          form.reset();
-          onOpenChange(false);
-        }
-        return; // Early return to prevent double reset
+        toast({
+          title: 'Product Added',
+          description: `Product "${values.name}" has been successfully created.`,
+        });
       }
       
       form.reset();
@@ -338,8 +321,13 @@ export function AddProductDialog({ open, onOpenChange, editMode = false, product
                                         <FormItem>
                                           <FormLabel>Barcode</FormLabel>
                                           <FormControl>
-                                            <Input placeholder="Enter barcode" {...field} />
+                                            <Input 
+                                              placeholder="Enter barcode" 
+                                              {...field}
+                                              value={field.value || ''}
+                                            />
                                           </FormControl>
+                                          <FormMessage />
                                         </FormItem>
                                       )}
                                     />
@@ -358,42 +346,6 @@ export function AddProductDialog({ open, onOpenChange, editMode = false, product
                                     )}
                                 />
                                 
-                                {/* Has Variants Checkbox */}
-                                <FormField
-                                  control={form.control}
-                                  name="hasVariants"
-                                  render={({ field }) => (
-                                    <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                                      <FormControl>
-                                        <Checkbox
-                                          checked={field.value}
-                                          onCheckedChange={field.onChange}
-                                        />
-                                      </FormControl>
-                                      <div className="space-y-1 leading-none">
-                                        <FormLabel className="font-semibold">
-                                          This product has variants
-                                        </FormLabel>
-                                        <p className="text-sm text-muted-foreground">
-                                          Enable this if the product has different variations (e.g., colors, flavors, sizes) that share the same barcode.
-                                          You'll manage stock separately for each variant.
-                                        </p>
-                                        {editMode && productToEdit?.hasVariants && (
-                                          <Button
-                                            type="button"
-                                            variant="link"
-                                            className="p-0 h-auto text-blue-600 mt-2"
-                                            onClick={() => setIsManageVariantsOpen(true)}
-                                          >
-                                            <PlusCircle className="h-4 w-4 mr-1" />
-                                            Manage Variants
-                                          </Button>
-                                        )}
-                                      </div>
-                                    </FormItem>
-                                  )}
-                                />
-                                
                                 <div className="grid grid-cols-2 gap-4">
                                   <FormField
                                       control={form.control}
@@ -402,7 +354,7 @@ export function AddProductDialog({ open, onOpenChange, editMode = false, product
                                         <FormItem>
                                           <FormLabel>Category</FormLabel>
                                           <div className='flex items-center gap-2'>
-                                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                          <Select onValueChange={field.onChange} value={field.value}>
                                             <FormControl>
                                               <SelectTrigger>
                                                 <SelectValue placeholder="Select category" />
@@ -443,7 +395,7 @@ export function AddProductDialog({ open, onOpenChange, editMode = false, product
                                         <FormItem>
                                           <FormLabel>Brand</FormLabel>
                                           <div className='flex items-center gap-2'>
-                                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                            <Select onValueChange={field.onChange} value={field.value}>
                                               <FormControl>
                                                 <SelectTrigger>
                                                   <SelectValue placeholder="Select brand" />
@@ -755,7 +707,12 @@ export function AddProductDialog({ open, onOpenChange, editMode = false, product
                             Cancel
                             </Button>
                         </DialogClose>
-                        <Button type="submit">{editMode ? 'Update' : 'Save'}</Button>
+                        <Button 
+                          type="submit"
+                          onClick={() => console.log('UPDATE BUTTON CLICKED - Form state:', form.formState.errors)}
+                        >
+                          {editMode ? 'Update' : 'Save'}
+                        </Button>
                     </div>
                 </div>
             </DialogFooter>
@@ -793,15 +750,6 @@ export function AddProductDialog({ open, onOpenChange, editMode = false, product
         });
       }}
     />
-    {editMode && productToEdit?.hasVariants && (
-      <ManageVariantsDialog
-        open={isManageVariantsOpen}
-        onOpenChange={setIsManageVariantsOpen}
-        productId={productToEdit.id}
-        productName={productToEdit.name}
-        sharedBarcode={productToEdit.sharedBarcode || productToEdit.barcode || ''}
-      />
-    )}
     </>
   );
 }
