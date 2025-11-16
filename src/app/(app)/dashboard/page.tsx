@@ -1,8 +1,12 @@
+'use client';
+
+import { useEffect, useState } from 'react';
 import {
   Activity,
   CreditCard,
   DollarSign,
   ShieldAlert,
+  Loader2,
 } from "lucide-react"
 
 import {
@@ -22,10 +26,87 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { PageHeader } from "@/components/page-header"
 import { DashboardChart } from "@/components/dashboard-chart"
-import { auditLogs } from "@/lib/data"
+import { getDashboardStats } from '@/lib/report-actions';
+import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
+import { initializeFirebase } from '@/firebase';
+
+interface DashboardStats {
+  totalRevenue: number;
+  revenueChange: string;
+  transactionCount: number;
+  activeNow: number;
+  flaggedActivities: number;
+}
+
+interface RecentActivity {
+  id: string;
+  user: string;
+  role: string;
+  action: string;
+  timestamp: string;
+}
 
 export default function Dashboard() {
-  const recentLogs = auditLogs.slice(0, 5)
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<DashboardStats>({
+    totalRevenue: 0,
+    revenueChange: '+0%',
+    transactionCount: 0,
+    activeNow: 0,
+    flaggedActivities: 0
+  });
+  const [recentActivity, setRecentActivity] = useState<RecentActivity[]>([]);
+
+  useEffect(() => {
+    loadDashboardData();
+  }, []);
+
+  async function loadDashboardData() {
+    try {
+      setLoading(true);
+      
+      // Fetch dashboard stats
+      const statsResult = await getDashboardStats();
+      if (statsResult.success && statsResult.data) {
+        setStats(statsResult.data);
+      }
+
+      // Fetch recent transactions for activity log
+      const { firestore } = initializeFirebase();
+      const transactionsRef = collection(firestore, 'pending_transactions');
+      const q = query(transactionsRef, orderBy('createdAt', 'desc'), limit(5));
+      const snapshot = await getDocs(q);
+
+      const activities: RecentActivity[] = snapshot.docs.map((doc: any) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          user: data.employeeEmail?.split('@')[0] || 'Unknown',
+          role: 'Cashier',
+          action: data.paymentMethod === 'void' ? 'VOID' : 'SALE',
+          timestamp: data.createdAt
+        };
+      });
+      setRecentActivity(activities);
+    } catch (error) {
+      console.error('Error loading dashboard data:', error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const recentLogs = recentActivity.slice(0, 5)
+
+  if (loading) {
+    return (
+      <>
+        <PageHeader title="Dashboard" description="Welcome back! Here's a summary of your store's activity." />
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </>
+    );
+  }
 
   return (
     <>
@@ -39,9 +120,9 @@ export default function Dashboard() {
             <DollarSign className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">$45,231.89</div>
+            <div className="text-2xl font-bold">${stats.totalRevenue.toFixed(2)}</div>
             <p className="text-xs text-muted-foreground">
-              +20.1% from last month
+              {stats.revenueChange}% from last month
             </p>
           </CardContent>
         </Card>
@@ -51,9 +132,9 @@ export default function Dashboard() {
             <CreditCard className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">+12,234</div>
+            <div className="text-2xl font-bold">+{stats.transactionCount}</div>
             <p className="text-xs text-muted-foreground">
-              +19% from last month
+              Today's transactions
             </p>
           </CardContent>
         </Card>
@@ -63,23 +144,23 @@ export default function Dashboard() {
             <Activity className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">+3</div>
+            <div className="text-2xl font-bold">+{recentActivity.length > 0 ? new Set(recentActivity.map(a => a.user)).size : 0}</div>
             <p className="text-xs text-muted-foreground">
-              Employees currently logged in
+              Employees recently active
             </p>
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">
-              Flagged Activities
+              Today's Transactions
             </CardTitle>
             <ShieldAlert className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">+5</div>
+            <div className="text-2xl font-bold">+{stats.transactionCount}</div>
             <p className="text-xs text-muted-foreground">
-              In the last 24 hours
+              Sales completed today
             </p>
           </CardContent>
         </Card>

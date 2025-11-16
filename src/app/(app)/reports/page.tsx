@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +13,8 @@ import {
   Download,
   Calendar,
   BarChart3,
-  ShoppingCart
+  ShoppingCart,
+  Loader2
 } from "lucide-react";
 import {
   Table,
@@ -31,57 +32,65 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { getSalesReport, getInventoryReport, getTransactionReport } from "@/lib/report-actions";
 
 type ReportType = 'overview' | 'sales' | 'inventory' | 'employees' | 'transactions' | 'alerts';
 
 export default function ReportsPage() {
   const [selectedReport, setSelectedReport] = useState<ReportType>('overview');
   const [dateRange, setDateRange] = useState('last-7-days');
+  const [loading, setLoading] = useState(false);
+  
+  // Real data from Firebase
+  const [salesReportData, setSalesReportData] = useState<any[]>([]);
+  const [inventoryReportData, setInventoryReportData] = useState<any[]>([]);
+  const [transactionReportData, setTransactionReportData] = useState<any[]>([]);
 
-  // Mock data for different reports
-  const salesReportData = [
-    { date: '2025-11-07', transactions: 145, revenue: 8234.50, avgTransaction: 56.83, topProduct: 'Coca Cola 330ml' },
-    { date: '2025-11-08', transactions: 132, revenue: 7456.20, avgTransaction: 56.49, topProduct: 'Rice 5kg' },
-    { date: '2025-11-09', transactions: 168, revenue: 9821.30, avgTransaction: 58.46, topProduct: 'Water 1.5L' },
-    { date: '2025-11-10', transactions: 156, revenue: 8945.80, avgTransaction: 57.34, topProduct: 'Bread' },
-    { date: '2025-11-11', transactions: 189, revenue: 11234.60, avgTransaction: 59.44, topProduct: 'Coffee' },
-    { date: '2025-11-12', transactions: 203, revenue: 12456.90, avgTransaction: 61.37, topProduct: 'Snacks' },
-    { date: '2025-11-13', transactions: 178, revenue: 10234.50, avgTransaction: 57.52, topProduct: 'Milk' },
-  ];
+  // Load data when report type or date range changes
+  useEffect(() => {
+    loadReportData();
+  }, [selectedReport, dateRange]);
 
-  const inventoryReportData = [
-    { product: 'Coca Cola 330ml', stock: 245, minStock: 100, status: 'good', value: 1225.00, turnover: '8.5 days' },
-    { product: 'Rice 5kg', stock: 45, minStock: 50, status: 'low', value: 2250.00, turnover: '12 days' },
-    { product: 'Water 1.5L', stock: 12, minStock: 80, status: 'critical', value: 180.00, turnover: '3 days' },
-    { product: 'Bread', stock: 156, minStock: 80, status: 'good', value: 780.00, turnover: '2 days' },
-    { product: 'Coffee', stock: 89, minStock: 60, status: 'good', value: 2670.00, turnover: '15 days' },
-    { product: 'Snacks', stock: 234, minStock: 120, status: 'good', value: 4680.00, turnover: '7 days' },
-    { product: 'Milk 1L', stock: 67, minStock: 70, status: 'low', value: 1675.00, turnover: '4 days' },
-  ];
+  const loadReportData = async () => {
+    setLoading(true);
+    try {
+      if (selectedReport === 'sales' || selectedReport === 'overview') {
+        const salesResult = await getSalesReport(dateRange);
+        if (salesResult.success) {
+          setSalesReportData(salesResult.data);
+        }
+      }
+      
+      if (selectedReport === 'inventory' || selectedReport === 'overview') {
+        const inventoryResult = await getInventoryReport();
+        if (inventoryResult.success) {
+          setInventoryReportData(inventoryResult.data);
+        }
+      }
+      
+      if (selectedReport === 'transactions') {
+        const transactionResult = await getTransactionReport(dateRange);
+        if (transactionResult.success) {
+          setTransactionReportData(transactionResult.data);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading report data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  // Mock data for employees and alerts (not yet implemented in backend)
   const employeeReportData = [
     { name: 'David Smith', role: 'Cashier', sales: 234, revenue: 12456.80, avgSale: 53.25, hours: 40, performance: 'excellent' },
     { name: 'Maria Garcia', role: 'Manager', sales: 156, revenue: 8923.40, avgSale: 57.20, hours: 45, performance: 'good' },
     { name: 'John Doe', role: 'Cashier', sales: 198, revenue: 9876.50, avgSale: 49.88, hours: 38, performance: 'good' },
-    { name: 'Sarah Johnson', role: 'Cashier', sales: 212, revenue: 11234.20, avgSale: 52.99, hours: 42, performance: 'excellent' },
-    { name: 'Alex Johnson', role: 'Admin', sales: 45, revenue: 2345.60, avgSale: 52.12, hours: 20, performance: 'average' },
-  ];
-
-  const transactionReportData = [
-    { id: 'TXN-001', time: '9:05:14 AM', cashier: 'David Smith', amount: 156.80, items: 8, payment: 'cash', status: 'completed' },
-    { id: 'TXN-002', time: '9:15:22 AM', cashier: 'Maria Garcia', amount: 89.50, items: 5, payment: 'card', status: 'completed' },
-    { id: 'TXN-003', time: '9:30:45 AM', cashier: 'David Smith', amount: 234.20, items: 12, payment: 'card', status: 'completed' },
-    { id: 'TXN-004', time: '10:02:01 AM', cashier: 'Sarah Johnson', amount: 45.60, items: 3, payment: 'cash', status: 'completed' },
-    { id: 'TXN-005', time: '10:30:18 AM', cashier: 'David Smith', amount: 178.90, items: 9, payment: 'card', status: 'completed' },
-    { id: 'TXN-006', time: '10:45:33 AM', cashier: 'Maria Garcia', amount: 67.40, items: 4, payment: 'cash', status: 'voided' },
   ];
 
   const alertsReportData = [
     { time: '10:32:01 AM', type: 'Low Stock', severity: 'high', message: 'Water 1.5L stock below minimum', action: 'Reorder required' },
-    { time: '9:45:22 AM', type: 'Price Change', severity: 'medium', message: 'Coffee price updated by Maria Garcia', action: 'Approved' },
-    { time: '8:15:45 AM', type: 'Void Transaction', severity: 'high', message: 'TXN-006 voided by Maria Garcia', action: 'Under review' },
-    { time: 'Yesterday', type: 'Low Stock', severity: 'medium', message: 'Rice 5kg approaching minimum', action: 'Monitor' },
-    { time: 'Yesterday', type: 'Large Transaction', severity: 'low', message: 'Transaction over $500 by David Smith', action: 'Verified' },
+    { time: '9:45:22 AM', type: 'Price Change', severity: 'medium', message: 'Coffee price updated', action: 'Approved' },
   ];
 
   const reportCards = [
@@ -142,59 +151,80 @@ export default function ReportsPage() {
   };
 
   const renderReportContent = () => {
+    if (loading) {
+      return (
+        <Card>
+          <CardContent className="flex items-center justify-center py-20">
+            <div className="text-center">
+              <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-blue-600" />
+              <p className="text-muted-foreground">Loading report data...</p>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+
     switch (selectedReport) {
       case 'sales':
         return (
           <Card>
             <CardHeader>
-              <CardTitle>Sales Report - Last 7 Days</CardTitle>
+              <CardTitle>Sales Report - {dateRange.replace(/-/g, ' ').toUpperCase()}</CardTitle>
               <CardDescription>Daily sales transactions, revenue, and top products</CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Transactions</TableHead>
-                    <TableHead>Revenue</TableHead>
-                    <TableHead>Avg Transaction</TableHead>
-                    <TableHead>Top Product</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {salesReportData.map((row, index) => (
-                    <TableRow key={index}>
-                      <TableCell className="font-medium">{new Date(row.date).toLocaleDateString()}</TableCell>
-                      <TableCell>{row.transactions}</TableCell>
-                      <TableCell className="text-green-600 font-semibold">${row.revenue.toFixed(2)}</TableCell>
-                      <TableCell>${row.avgTransaction.toFixed(2)}</TableCell>
-                      <TableCell>{row.topProduct}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-              <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-                <div className="grid grid-cols-3 gap-4 text-center">
-                  <div>
-                    <div className="text-2xl font-bold text-blue-600">
-                      {salesReportData.reduce((sum, item) => sum + item.transactions, 0)}
-                    </div>
-                    <div className="text-sm text-muted-foreground">Total Transactions</div>
-                  </div>
-                  <div>
-                    <div className="text-2xl font-bold text-green-600">
-                      ${salesReportData.reduce((sum, item) => sum + item.revenue, 0).toFixed(2)}
-                    </div>
-                    <div className="text-sm text-muted-foreground">Total Revenue</div>
-                  </div>
-                  <div>
-                    <div className="text-2xl font-bold text-purple-600">
-                      ${(salesReportData.reduce((sum, item) => sum + item.avgTransaction, 0) / salesReportData.length).toFixed(2)}
-                    </div>
-                    <div className="text-sm text-muted-foreground">Avg Transaction</div>
-                  </div>
+              {salesReportData.length === 0 ? (
+                <div className="text-center py-10 text-muted-foreground">
+                  No sales data available for this period
                 </div>
-              </div>
+              ) : (
+                <>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Transactions</TableHead>
+                        <TableHead>Revenue</TableHead>
+                        <TableHead>Avg Transaction</TableHead>
+                        <TableHead>Top Product</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {salesReportData.map((row, index) => (
+                        <TableRow key={index}>
+                          <TableCell className="font-medium">{new Date(row.date).toLocaleDateString()}</TableCell>
+                          <TableCell>{row.transactions}</TableCell>
+                          <TableCell className="text-green-600 font-semibold">${row.revenue.toFixed(2)}</TableCell>
+                          <TableCell>${row.avgTransaction.toFixed(2)}</TableCell>
+                          <TableCell>{row.topProduct}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                  <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+                    <div className="grid grid-cols-3 gap-4 text-center">
+                      <div>
+                        <div className="text-2xl font-bold text-blue-600">
+                          {salesReportData.reduce((sum, item) => sum + item.transactions, 0)}
+                        </div>
+                        <div className="text-sm text-muted-foreground">Total Transactions</div>
+                      </div>
+                      <div>
+                        <div className="text-2xl font-bold text-green-600">
+                          ${salesReportData.reduce((sum, item) => sum + item.revenue, 0).toFixed(2)}
+                        </div>
+                        <div className="text-sm text-muted-foreground">Total Revenue</div>
+                      </div>
+                      <div>
+                        <div className="text-2xl font-bold text-purple-600">
+                          ${salesReportData.length > 0 ? (salesReportData.reduce((sum, item) => sum + item.avgTransaction, 0) / salesReportData.length).toFixed(2) : '0.00'}
+                        </div>
+                        <div className="text-sm text-muted-foreground">Avg Transaction</div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         );
